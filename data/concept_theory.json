@@ -1,0 +1,49 @@
+{
+  "interest_tvm_basics": "## Time Value of Money\n\nMoney available now is worth more than the same amount in the future due to its earning potential.\n\n**Accumulation function**: $a(t) = (1+i)^t$ for compound interest.\n\n**Key formulas**:\n- $FV = PV \\cdot (1+i)^n$\n- $PV = FV \\cdot v^n$ where $v = \\frac{1}{1+i}$\n- Solve for $i$: $i = \\left(\\frac{FV}{PV}\\right)^{1/n} - 1$\n- Solve for $n$: $n = \\frac{\\ln(FV/PV)}{\\ln(1+i)}$",
+
+  "interest_effective_nominal": "## Effective vs Nominal Interest Rates\n\nA **nominal rate** $i^{(m)}$ compounded $m$ times per year differs from the **effective annual rate** $i$.\n\n**Conversions**:\n- Nominal → Effective: $i = \\left(1 + \\frac{i^{(m)}}{m}\\right)^m - 1$\n- Effective → Nominal: $i^{(m)} = m\\left[(1+i)^{1/m} - 1\\right]$\n\nCommon case: $i^{(12)} = 12\\%$ nominal monthly → $i = (1.01)^{12}-1 \\approx 12.68\\%$ effective.",
+
+  "interest_force": "## Force of Interest\n\nThe **force of interest** $\\delta$ is the continuously compounded rate:\n$$\\delta = \\ln(1+i) \\qquad i = e^\\delta - 1$$\n\n**Continuous accumulation**: $FV = PV \\cdot e^{\\delta t}$\n\nUseful identity: $d < i^{(m)} < i$ for all finite $m$, with $\\delta$ as the limit as $m \\to \\infty$.",
+
+  "interest_discount_rate": "## Discount Rate\n\nThe **discount rate** $d$ measures interest paid at the *start* of the period (e.g., T-bills).\n\n$$d = \\frac{i}{1+i} \\qquad i = \\frac{d}{1-d} \\qquad v = 1-d$$\n\n**Discount accumulation**: $PV = FV \\cdot (1-d)^n$\n\nRelationships: $d < i$; $d + iv = i$ (useful identity).",
+
+  "annuity_immediate": "## Annuity-Immediate\n\nPayments of 1 at the *end* of each period for $n$ periods.\n\n**PV factor**: $a_{\\overline{n}|} = \\frac{1 - v^n}{i}$\n\n**FV factor**: $s_{\\overline{n}|} = \\frac{(1+i)^n - 1}{i}$\n\n**Relationship**: $s_{\\overline{n}|} = a_{\\overline{n}|} \\cdot (1+i)^n$\n\nTo solve for $n$ given PV and PMT: $n = -\\frac{\\ln\\left(1 - \\frac{PV \\cdot i}{PMT}\\right)}{\\ln(1+i)}$",
+
+  "annuity_due": "## Annuity-Due\n\nPayments at the *start* of each period. Each payment one period earlier than annuity-immediate.\n\n$$\\ddot{a}_{\\overline{n}|} = (1+i)\\,a_{\\overline{n}|} \\qquad \\ddot{s}_{\\overline{n}|} = (1+i)\\,s_{\\overline{n}|}$$\n\nAlso: $\\ddot{a}_{\\overline{n}|} = \\frac{1-v^n}{d}$ where $d = iv$.",
+
+  "perpetuity": "## Perpetuity\n\nInfinite series of payments.\n\n**Perpetuity-immediate** (end of period): $a_{\\overline{\\infty}|} = \\frac{1}{i}$\n\n**Perpetuity-due** (start of period): $\\ddot{a}_{\\overline{\\infty}|} = \\frac{1}{d} = \\frac{1+i}{i}$\n\n**Deferred perpetuity**: $_{m|}a_{\\overline{\\infty}|} = v^m \\cdot \\frac{1}{i}$",
+
+  "deferred_annuity": "## Deferred Annuity\n\nAn annuity that begins $m$ periods in the future.\n\n**Deferred annuity-immediate PV**: $_{m|}a_{\\overline{n}|} = v^m \\cdot a_{\\overline{n}|}$\n\n**Deferred annuity-due PV**: $_{m|}\\ddot{a}_{\\overline{n}|} = v^m \\cdot \\ddot{a}_{\\overline{n}|}$\n\nAlternative: $_{m|}a_{\\overline{n}|} = a_{\\overline{m+n}|} - a_{\\overline{m}|}$",
+
+  "annuity_varying": "## Varying Annuities\n\n**Arithmetic increasing** (payments 1, 2, 3, ..., n):\n$(Ia)_{\\overline{n}|} = \\frac{\\ddot{a}_{\\overline{n}|} - nv^n}{i}$\n\n**Arithmetic decreasing** (payments n, n-1, ..., 1):\n$(Da)_{\\overline{n}|} = \\frac{n - a_{\\overline{n}|}}{i}$\n\n**Geometric** (ratio $1+g$ per period):\n$PV = PMT \\cdot a_{\\overline{n}|}^{(j)}$ where $j = \\frac{i-g}{1+g}$ (assuming $i \\neq g$)\n\nSpecial case $i = g$: $PV = \\frac{n \\cdot PMT}{1+i}$",
+
+  "loan_amortization": "## Loan Amortization\n\nEach level payment covers interest first, then reduces principal.\n\n**Payment**: $K = \\frac{L}{a_{\\overline{n}|i}}$\n\n**Outstanding balance** (prospective): $OB_t = K \\cdot a_{\\overline{n-t}|i}$\n\n**Outstanding balance** (retrospective): $OB_t = L(1+i)^t - K \\cdot s_{\\overline{t}|i}$\n\nBoth methods give identical results — use whichever is more convenient.",
+
+  "loan_interest_principal": "## Interest/Principal Split\n\n**Interest portion of payment $t$**: $I_t = K(1 - v^{n-t+1})$\n\n**Principal portion of payment $t$**: $P_t = K \\cdot v^{n-t+1}$\n\nCheck: $I_t + P_t = K$. Principal portions form a geometric sequence with ratio $(1+i)$.\n\n**Total interest paid**: $K \\cdot n - L$",
+
+  "sinking_fund": "## Sinking Fund Method\n\nBorrower pays interest each period on the full loan, deposits separately into a fund that accumulates to repay principal.\n\n**Sinking fund deposit**: $D = \\frac{L}{s_{\\overline{n}|j}}$ at rate $j$\n\n**Periodic outlay**: $L \\cdot i_{loan} + D$\n\nVs. amortization: sinking fund is preferred when the investment rate $j >$ the loan rate.",
+
+  "bond_price": "## Bond Pricing\n\n$$P = C \\cdot v^n + Fr \\cdot a_{\\overline{n}|i}$$\n\nwhere $F$ = face, $C$ = redemption (usually $C=F$), $r$ = coupon rate, $i$ = yield, $Fr$ = coupon.\n\n**Current yield**: $\\frac{Fr}{P}$ (not the same as yield-to-maturity)\n\n**Yield approximation**: $i \\approx \\frac{Fr + (C-P)/n}{(C+P)/2}$",
+
+  "bond_makeham": "## Makeham Formula\n\n$$P = K + \\frac{g}{i}(C - K)$$\n\nwhere:\n- $K = C \\cdot v^n$ (PV of redemption)\n- $g = Fr/C$ (modified coupon rate; equals $r$ when $C = F$)\n\nUseful because $K$ depends only on the redemption, and $g/i$ adjusts for coupon vs yield.",
+
+  "bond_premium_discount": "## Premium and Discount\n\n$$P - C = (g - i) \\cdot C \\cdot a_{\\overline{n}|}$$\n\n- $g > i$: bond at **premium** ($P > C$)\n- $g < i$: bond at **discount** ($P < C$)\n\n**Book value** (amortized cost) after period $t$:\n$BV_t = C + (g-i) \\cdot C \\cdot a_{\\overline{n-t}|}$\n\nPremium/discount amortizes linearly in the coupon spread $(g-i)$.",
+
+  "macaulay_duration": "## Macaulay Duration\n\nWeighted average time to receive cash flows, where weights are PV of each cash flow:\n$$D_{mac} = \\frac{\\sum_t t \\cdot PV(CF_t)}{P}$$\n\n**Perpetuity-immediate**: $D_{mac} = \\frac{1+i}{i}$\n\n**Zero-coupon bond**: $D_{mac} = n$ (equals maturity)\n\nDuration measures price sensitivity to yield changes.",
+
+  "modified_duration": "## Modified Duration\n\n$$D_{mod} = \\frac{D_{mac}}{1+i}$$\n\n**First-order price change approximation**:\n$$\\Delta P \\approx -D_{mod} \\cdot P \\cdot \\Delta i$$\n\nA bond with $D_{mod} = 7$ loses approximately 7% of value per 100 bps rise in yield.",
+
+  "convexity": "## Convexity\n\n$$C = \\frac{\\sum_t t(t+1) \\cdot PV(CF_t)}{P \\cdot (1+i)^2}$$\n\n**Second-order price approximation**:\n$$\\Delta P \\approx -D_{mod} \\cdot P \\cdot \\Delta i + \\frac{1}{2} C \\cdot P \\cdot (\\Delta i)^2$$\n\nHigher convexity is desirable: bonds gain more than they lose for equal yield moves.",
+
+  "immunization": "## Redington Immunization\n\nProtects a portfolio against small parallel yield shifts. Three conditions:\n1. $PV(assets) = PV(liabilities)$\n2. $D_{mac}(assets) = D_{mac}(liabilities)$ ← duration match\n3. $Convexity(assets) > Convexity(liabilities)$ ← dispersion condition\n\n**Full immunization** also protects against large shifts (requires asset cash flows to straddle the liability).",
+
+  "spot_forward_rates": "## Spot and Forward Rates\n\n**Spot rate** $s_t$: yield on a zero-coupon bond maturing at time $t$.\n\n**No-arbitrage forward rate** $f_{t,t+k}$:\n$(1+s_t)^t \\cdot (1+f_{t,t+k})^k = (1+s_{t+k})^{t+k}$\n\nFor 1-year forward starting at 1:\n$f_{1,2} = \\frac{(1+s_2)^2}{1+s_1} - 1$\n\n**PV using spot rates**: discount each cash flow at its maturity's spot rate.",
+
+  "forward_contract": "## Forward Contracts\n\nAgreement to buy/sell an asset at a future date at a pre-agreed price.\n\n**Forward price** (no dividends): $F = S_0(1+r)^T$\n\n**With continuous dividend yield $q$**: $F = S_0(1+r-q)^T$\n\n**Payoff** at delivery:\n- Long: $S_T - F$\n- Short: $F - S_T$",
+
+  "option_payoff": "## Option Payoffs\n\n**Call** (right to buy at strike $K$):\n- Payoff: $\\max(S_T - K, 0)$\n- Profit: payoff $-$ premium\n\n**Put** (right to sell at strike $K$):\n- Payoff: $\\max(K - S_T, 0)$\n- Profit: payoff $-$ premium\n\nPayoff is always $\\geq 0$; profit can be negative (by the premium paid).",
+
+  "put_call_parity": "## Put-Call Parity\n\nFor European options on the same underlying, same strike and expiry:\n$$C + PV(K) = P + S_0$$\n\nwhere $PV(K) = K/(1+r)^T$.\n\nRearranged:\n- $P = C + PV(K) - S_0$\n- $C = P + S_0 - PV(K)$\n\nViolation of parity creates a risk-free arbitrage opportunity.",
+
+  "swap_rate": "## Interest Rate Swaps\n\nParties exchange fixed vs floating interest payments on a notional principal.\n\n**Fixed swap rate** $R$ (set so swap has zero value at initiation):\n$$R = \\frac{1 - v_n}{\\sum_{t=1}^n v_t}$$\n\nwhere $v_t = 1/(1+s_t)^t$ using spot rates.\n\n**Fixed payment**: $R \\times$ Notional per period.\n\nSwap rate equals the par coupon rate for a bond with the same maturity and cash flow dates."
+}

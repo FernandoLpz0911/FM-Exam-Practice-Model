@@ -1,0 +1,97 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #252836;
+  --border: #2e3245;
+  --text: #e2e8f0;
+  --muted: #8892a4;
+  --accent: #6c8ef5;
+  --accent-dim: #2d3a6b;
+  --green: #4ade80;
+  --red: #f87171;
+  --yellow: #fbbf24;
+  --radius: 8px;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  transition: opacity 0.15s;
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:not(:disabled):hover { opacity: 0.85; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-ghost {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-choice {
+  background: var(--surface2);
+  color: var(--text);
+  border: 2px solid var(--border);
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn-choice:not(:disabled):hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.btn-choice.selected { border-color: var(--accent); background: var(--accent-dim); }
+.btn-choice.correct  { border-color: var(--green); background: #1a3325; }
+.btn-choice.wrong    { border-color: var(--red); background: #2d1a1a; }
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.tag-new      { background: #1e3a5f; color: #93c5fd; }
+.tag-learning { background: #3b2a05; color: var(--yellow); }
+.tag-review   { background: #1a3325; color: var(--green); }
+
+code, pre {
+  font-family: var(--mono);
+  font-size: 13px;
+}

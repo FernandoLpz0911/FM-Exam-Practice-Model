@@ -1,0 +1,415 @@
+{
+  "exam": "SOA FM — Financial Mathematics",
+  "nodes": [
+    {
+      "id": "interest_tvm_basics",
+      "name": "Time value of money",
+      "category": "interest",
+      "exam_weight_tier": 3,
+      "summary": "Present and future value, accumulation factor, discount factor",
+      "prerequisites": [],
+      "generator": {
+        "kind": "interest_tvm",
+        "params": {
+          "ask": ["future_value", "present_value", "interest_rate_solve", "periods_solve"],
+          "i_range": [0.02, 0.12],
+          "n_range": [1, 20],
+          "pv_range": [1000, 50000]
+        }
+      }
+    },
+    {
+      "id": "interest_effective_nominal",
+      "name": "Effective and nominal interest rates",
+      "category": "interest",
+      "exam_weight_tier": 2,
+      "summary": "Convert between nominal i^(m) and effective i; m-thly compounding",
+      "prerequisites": ["interest_tvm_basics"],
+      "generator": {
+        "kind": "interest_nominal",
+        "params": {
+          "ask": ["nominal_to_effective", "effective_to_nominal", "equivalent_rate"],
+          "i_range": [0.04, 0.14],
+          "m_choices": [2, 4, 12, 365]
+        }
+      }
+    },
+    {
+      "id": "interest_force",
+      "name": "Force of interest",
+      "category": "interest",
+      "exam_weight_tier": 1,
+      "summary": "Force of interest delta = ln(1+i); continuous compounding e^{delta*t}",
+      "prerequisites": ["interest_effective_nominal"],
+      "generator": {
+        "kind": "interest_force",
+        "params": {
+          "ask": ["force_from_rate", "rate_from_force", "accumulation_continuous"],
+          "i_range": [0.03, 0.12],
+          "t_range": [1, 10]
+        }
+      }
+    },
+    {
+      "id": "interest_discount_rate",
+      "name": "Discount rate and present-value factors",
+      "category": "interest",
+      "exam_weight_tier": 1,
+      "summary": "Discount rate d = i*v = 1-v; relationship d, i, v, delta",
+      "prerequisites": ["interest_tvm_basics"],
+      "generator": {
+        "kind": "interest_discount",
+        "params": {
+          "ask": ["discount_from_interest", "interest_from_discount", "pv_using_discount"],
+          "i_range": [0.04, 0.12],
+          "n_range": [1, 15]
+        }
+      }
+    },
+    {
+      "id": "annuity_immediate",
+      "name": "Annuity-immediate",
+      "category": "annuity",
+      "exam_weight_tier": 3,
+      "summary": "a_n| = (1-v^n)/i and s_n| = ((1+i)^n-1)/i; level payments at end of period",
+      "prerequisites": ["interest_tvm_basics"],
+      "generator": {
+        "kind": "annuity_immediate",
+        "params": {
+          "ask": ["pv_annuity_imm", "fv_annuity_imm", "payment_from_pv", "n_from_pv_imm"],
+          "i_range": [0.03, 0.10],
+          "n_range": [5, 30],
+          "payment_range": [500, 5000]
+        }
+      }
+    },
+    {
+      "id": "annuity_due",
+      "name": "Annuity-due",
+      "category": "annuity",
+      "exam_weight_tier": 2,
+      "summary": "a_due_n| = (1-v^n)/d = (1+i)*a_n|; payments at beginning of period",
+      "prerequisites": ["annuity_immediate"],
+      "generator": {
+        "kind": "annuity_due",
+        "params": {
+          "ask": ["pv_annuity_due", "fv_annuity_due", "payment_from_pv_due"],
+          "i_range": [0.03, 0.10],
+          "n_range": [5, 25],
+          "payment_range": [500, 5000]
+        }
+      }
+    },
+    {
+      "id": "perpetuity",
+      "name": "Perpetuity",
+      "category": "annuity",
+      "exam_weight_tier": 2,
+      "summary": "a_inf| = 1/i (end-of-period); a_due_inf| = 1/d (beginning-of-period)",
+      "prerequisites": ["annuity_immediate"],
+      "generator": {
+        "kind": "perpetuity",
+        "params": {
+          "ask": ["pv_perp_imm", "pv_perp_due", "payment_from_perp_pv"],
+          "i_range": [0.03, 0.10],
+          "payment_range": [100, 5000]
+        }
+      }
+    },
+    {
+      "id": "deferred_annuity",
+      "name": "Deferred annuities",
+      "category": "annuity",
+      "exam_weight_tier": 2,
+      "summary": "m|a_n| = v^m * a_n|; payments begin after m-period deferral",
+      "prerequisites": ["annuity_immediate", "annuity_due"],
+      "generator": {
+        "kind": "deferred_annuity",
+        "params": {
+          "ask": ["pv_deferred_imm", "pv_deferred_due"],
+          "i_range": [0.04, 0.10],
+          "n_range": [5, 20],
+          "m_range": [2, 10],
+          "payment_range": [1000, 5000]
+        }
+      }
+    },
+    {
+      "id": "annuity_varying",
+      "name": "Varying annuities",
+      "category": "annuity",
+      "exam_weight_tier": 1,
+      "summary": "(Ia)_n| = (a_due_n| - n*v^n)/i; (Da)_n| = (n - a_n|)/i",
+      "prerequisites": ["annuity_immediate"],
+      "generator": {
+        "kind": "annuity_varying",
+        "params": {
+          "ask": ["pv_arithmetic_inc", "pv_arithmetic_dec", "pv_geometric"],
+          "i_range": [0.04, 0.10],
+          "n_range": [5, 20],
+          "base_payment_range": [100, 1000]
+        }
+      }
+    },
+    {
+      "id": "loan_amortization",
+      "name": "Loan amortization",
+      "category": "loan",
+      "exam_weight_tier": 3,
+      "summary": "Level payment K = L/a_n|i; outstanding balance B_t = K*a_{n-t}|",
+      "prerequisites": ["annuity_immediate"],
+      "generator": {
+        "kind": "loan_amort",
+        "params": {
+          "ask": ["payment_amount", "outstanding_prospective", "outstanding_retrospective"],
+          "i_range": [0.04, 0.10],
+          "n_range": [10, 30],
+          "loan_range": [50000, 500000]
+        }
+      }
+    },
+    {
+      "id": "loan_interest_principal",
+      "name": "Interest and principal breakdown",
+      "category": "loan",
+      "exam_weight_tier": 2,
+      "summary": "I_t = i*B_{t-1}; PR_t = K*v^{n-t+1}; total interest = n*K - L",
+      "prerequisites": ["loan_amortization"],
+      "generator": {
+        "kind": "loan_split",
+        "params": {
+          "ask": ["interest_tth_payment", "principal_tth_payment", "total_interest_paid"],
+          "i_range": [0.04, 0.09],
+          "n_range": [10, 25],
+          "loan_range": [50000, 300000]
+        }
+      }
+    },
+    {
+      "id": "sinking_fund",
+      "name": "Sinking fund method",
+      "category": "loan",
+      "exam_weight_tier": 1,
+      "summary": "Borrow L at rate j; deposit D into fund at rate i so D*s_n|i = L",
+      "prerequisites": ["loan_amortization"],
+      "generator": {
+        "kind": "sinking_fund",
+        "params": {
+          "ask": ["sinking_fund_deposit", "total_periodic_outlay"],
+          "i_range": [0.03, 0.09],
+          "j_range": [0.05, 0.12],
+          "n_range": [5, 20],
+          "loan_range": [10000, 200000]
+        }
+      }
+    },
+    {
+      "id": "bond_price",
+      "name": "Bond pricing",
+      "category": "bond",
+      "exam_weight_tier": 3,
+      "summary": "P = C*v^n + Fr*a_n|i; basic yield, current yield",
+      "prerequisites": ["annuity_immediate"],
+      "generator": {
+        "kind": "bond_price",
+        "params": {
+          "ask": ["price_from_yield", "current_yield", "yield_approx"],
+          "face_range": [1000, 10000],
+          "coupon_rate_range": [0.03, 0.08],
+          "yield_range": [0.03, 0.09],
+          "n_range": [5, 20]
+        }
+      }
+    },
+    {
+      "id": "bond_makeham",
+      "name": "Makeham bond formula",
+      "category": "bond",
+      "exam_weight_tier": 1,
+      "summary": "P = K + (g/i)*(C - K) where K = C*v^n and g = Fr/C",
+      "prerequisites": ["bond_price"],
+      "generator": {
+        "kind": "bond_makeham",
+        "params": {
+          "ask": ["makeham_price", "makeham_modified_coupon_g"],
+          "face_range": [1000, 5000],
+          "coupon_rate_range": [0.03, 0.08],
+          "yield_range": [0.03, 0.09],
+          "n_range": [5, 15]
+        }
+      }
+    },
+    {
+      "id": "bond_premium_discount",
+      "name": "Bond premium and discount",
+      "category": "bond",
+      "exam_weight_tier": 2,
+      "summary": "Premium P > C iff g > i; P - C = (g-i)*C*a_n|; book value amortization",
+      "prerequisites": ["bond_price"],
+      "generator": {
+        "kind": "bond_prem_disc",
+        "params": {
+          "ask": ["premium_discount_amount", "book_value_tth"],
+          "face_range": [1000, 5000],
+          "coupon_rate_range": [0.03, 0.09],
+          "yield_range": [0.03, 0.09],
+          "n_range": [5, 15]
+        }
+      }
+    },
+    {
+      "id": "macaulay_duration",
+      "name": "Macaulay duration",
+      "category": "duration",
+      "exam_weight_tier": 2,
+      "summary": "D_mac = (sum t*v^t*CF_t) / P; weighted average time of cash flows",
+      "prerequisites": ["bond_price", "annuity_immediate"],
+      "generator": {
+        "kind": "macaulay_duration",
+        "params": {
+          "ask": ["macaulay_annuity", "macaulay_bond"],
+          "i_range": [0.04, 0.09],
+          "n_range": [5, 20],
+          "face_range": [1000, 5000],
+          "coupon_rate_range": [0.04, 0.08]
+        }
+      }
+    },
+    {
+      "id": "modified_duration",
+      "name": "Modified duration and price sensitivity",
+      "category": "duration",
+      "exam_weight_tier": 2,
+      "summary": "D_mod = D_mac/(1+i); dP/P ~ -D_mod * di",
+      "prerequisites": ["macaulay_duration"],
+      "generator": {
+        "kind": "modified_duration",
+        "params": {
+          "ask": ["modified_duration_value", "price_change_approx"],
+          "i_range": [0.04, 0.09],
+          "n_range": [5, 20],
+          "face_range": [1000, 5000],
+          "coupon_rate_range": [0.04, 0.08]
+        }
+      }
+    },
+    {
+      "id": "convexity",
+      "name": "Convexity",
+      "category": "duration",
+      "exam_weight_tier": 1,
+      "summary": "Convexity = (sum t*(t+1)*v^{t+2}*CF_t)/P; second-order price correction",
+      "prerequisites": ["modified_duration"],
+      "generator": {
+        "kind": "convexity",
+        "params": {
+          "ask": ["convexity_value", "price_change_with_convexity"],
+          "i_range": [0.04, 0.09],
+          "n_range": [5, 15],
+          "face_range": [1000, 5000],
+          "coupon_rate_range": [0.04, 0.08]
+        }
+      }
+    },
+    {
+      "id": "immunization",
+      "name": "Redington immunization",
+      "category": "duration",
+      "exam_weight_tier": 1,
+      "summary": "PV_A=PV_L, D_A=D_L, Cvx_A>Cvx_L → surplus > 0 for small yield shifts",
+      "prerequisites": ["modified_duration", "convexity"],
+      "generator": {
+        "kind": "immunization",
+        "params": {
+          "ask": ["redington_check", "asset_allocation_for_duration"],
+          "i_range": [0.04, 0.09],
+          "liability_range": [10000, 100000]
+        }
+      }
+    },
+    {
+      "id": "spot_forward_rates",
+      "name": "Spot and forward rates",
+      "category": "derivatives",
+      "exam_weight_tier": 2,
+      "summary": "f(t1,t2) forward rate; (1+s_2)^2 = (1+s_1)(1+f_{1,2}); zero-coupon bond price",
+      "prerequisites": ["interest_tvm_basics"],
+      "generator": {
+        "kind": "spot_forward",
+        "params": {
+          "ask": ["forward_from_spot", "spot_from_forward", "zcb_price"],
+          "spot_range": [0.03, 0.09]
+        }
+      }
+    },
+    {
+      "id": "forward_contract",
+      "name": "Forward contracts",
+      "category": "derivatives",
+      "exam_weight_tier": 2,
+      "summary": "Forward price F_0 = S_0*(1+r)^T; payoff long = S_T - F_0",
+      "prerequisites": ["interest_tvm_basics"],
+      "generator": {
+        "kind": "forward_contract",
+        "params": {
+          "ask": ["forward_price_no_div", "payoff_long_forward", "payoff_short_forward"],
+          "S0_range": [50, 200],
+          "r_range": [0.03, 0.09],
+          "T_range": [0.25, 2.0]
+        }
+      }
+    },
+    {
+      "id": "option_payoff",
+      "name": "Option payoffs at expiry",
+      "category": "derivatives",
+      "exam_weight_tier": 1,
+      "summary": "Call payoff = max(S_T - K, 0); Put payoff = max(K - S_T, 0); net profit",
+      "prerequisites": ["forward_contract"],
+      "generator": {
+        "kind": "option_payoff",
+        "params": {
+          "ask": ["call_payoff_at_expiry", "put_payoff_at_expiry", "net_profit_call", "net_profit_put"],
+          "S_T_range": [50, 200],
+          "K_range": [60, 180],
+          "premium_range": [2, 20]
+        }
+      }
+    },
+    {
+      "id": "put_call_parity",
+      "name": "Put-call parity",
+      "category": "derivatives",
+      "exam_weight_tier": 2,
+      "summary": "C - P = S_0 - K*v^T; European options under no-arbitrage",
+      "prerequisites": ["option_payoff", "forward_contract"],
+      "generator": {
+        "kind": "put_call_parity",
+        "params": {
+          "ask": ["call_from_put", "put_from_call", "parity_arbitrage_check"],
+          "S0_range": [50, 150],
+          "K_range": [50, 150],
+          "r_range": [0.03, 0.08],
+          "T_range": [0.5, 2.0]
+        }
+      }
+    },
+    {
+      "id": "swap_rate",
+      "name": "Interest rate swaps",
+      "category": "derivatives",
+      "exam_weight_tier": 1,
+      "summary": "Fixed swap rate R = (1 - v^n) / a_n|i; notional exchange of fixed vs floating",
+      "prerequisites": ["annuity_immediate", "spot_forward_rates"],
+      "generator": {
+        "kind": "swap_rate",
+        "params": {
+          "ask": ["fixed_swap_rate", "swap_net_payment"],
+          "i_range": [0.03, 0.09],
+          "n_range": [3, 10],
+          "notional_range": [100000, 1000000]
+        }
+      }
+    }
+  ]
+}
