@@ -42,43 +42,48 @@ def load_sequences(
 
     sessions: dict[int, list[tuple[int, int]]] = {}
     for row in rows:
-        idx = concept_index.get(row["concept_id"])
-        if idx is None:
+        concept_idx = concept_index.get(row["concept_id"])
+        if concept_idx is None:
+            # Interaction references a concept that isn't in the trained
+            # index (e.g. added after the index was built) — skip rather
+            # than crash, since DKT can't represent unknown concepts anyway.
             continue
         sessions.setdefault(row["session_id"], []).append(
-            (idx, int(row["is_correct"]))
+            (concept_idx, int(row["is_correct"]))
         )
 
-    # Only sessions with at least 2 steps (need input + one target)
-    return [seq for seq in sessions.values() if len(seq) >= 2]
+    # Only sessions with at least 2 steps (need one input step + one target)
+    return [session for session in sessions.values() if len(session) >= 2]
 
 
 def encode_sequence(
-    seq: list[tuple[int, int]],
+    session: list[tuple[int, int]],
     n_concepts: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Encode one session sequence into tensors (before padding).
 
     Returns:
-        x      — (T-1, 2M) float one-hot input
-        target — (T-1,)    float 0/1 next-step outcome
-        t_idx  — (T-1,)    long  next-step concept index (for loss gather)
+        inputs       — (T-1, 2M) float one-hot input
+        targets      — (T-1,)    float 0/1 next-step outcome
+        next_concept — (T-1,)    long  next-step concept index (for loss gather)
     """
-    M = n_concepts
-    T = len(seq)
-    x = torch.zeros(T - 1, 2 * M)
-    target = torch.zeros(T - 1)
-    t_idx = torch.zeros(T - 1, dtype=torch.long)
+    n_steps = len(session)
+    inputs = torch.zeros(n_steps - 1, 2 * n_concepts)
+    targets = torch.zeros(n_steps - 1)
+    next_concept = torch.zeros(n_steps - 1, dtype=torch.long)
 
-    for t in range(T - 1):
-        c, correct = seq[t]
-        hot = c if correct else c + M
-        x[t, hot] = 1.0
-        next_c, next_correct = seq[t + 1]
-        target[t] = float(next_correct)
-        t_idx[t] = next_c
+    for t in range(n_steps - 1):
+        concept_idx, is_correct = session[t]
+        # Two-hot encoding: same concept index space, but offset by
+        # n_concepts when the answer was wrong, so the model can distinguish
+        # "saw concept X and got it right" from "...and got it wrong".
+        hot_index = concept_idx if is_correct else concept_idx + n_concepts
+        inputs[t, hot_index] = 1.0
+        next_concept_idx, next_is_correct = session[t + 1]
+        targets[t] = float(next_is_correct)
+        next_concept[t] = next_concept_idx
 
-    return x, target, t_idx
+    return inputs, targets, next_concept
 
 
 def build_batches(
@@ -88,30 +93,33 @@ def build_batches(
     shuffle: bool = True,
 ) -> list[DKTBatch]:
     """Encode sequences and group into padded batches."""
-    encoded = [encode_sequence(s, n_concepts) for s in sequences]
+    encoded_sequences = [encode_sequence(session, n_concepts) for session in sequences]
 
     if shuffle:
         import random
-        random.shuffle(encoded)
+        random.shuffle(encoded_sequences)
 
     batches: list[DKTBatch] = []
-    for i in range(0, len(encoded), batch_size):
-        chunk = encoded[i : i + batch_size]
-        xs, targets, t_idxs = zip(*chunk)
+    for batch_start in range(0, len(encoded_sequences), batch_size):
+        chunk = encoded_sequences[batch_start:batch_start + batch_size]
+        chunk_inputs, chunk_targets, chunk_next_concepts = zip(*chunk)
 
-        # Lengths for masking
-        lengths = torch.tensor([x.size(0) for x in xs])
+        # Sessions in a chunk have different lengths; record the true length
+        # of each so padded steps can be masked out of the loss later.
+        session_lengths = torch.tensor([inputs.size(0) for inputs in chunk_inputs])
 
-        # Pad to (B, T, 2M)
-        x_pad = pad_sequence(xs, batch_first=True)
-        t_pad = pad_sequence(targets, batch_first=True, padding_value=0.0)
-        ti_pad = pad_sequence(t_idxs, batch_first=True, padding_value=0)
+        padded_inputs = pad_sequence(chunk_inputs, batch_first=True)
+        padded_targets = pad_sequence(chunk_targets, batch_first=True, padding_value=0.0)
+        padded_next_concepts = pad_sequence(
+            chunk_next_concepts, batch_first=True, padding_value=0
+        )
 
-        # Boolean mask: True where step is valid
-        T_max = x_pad.size(1)
-        mask = torch.arange(T_max).unsqueeze(0) < lengths.unsqueeze(1)
+        max_steps = padded_inputs.size(1)
+        valid_step_mask = torch.arange(max_steps).unsqueeze(0) < session_lengths.unsqueeze(1)
 
-        batches.append(DKTBatch(x_pad, t_pad, ti_pad, mask))
+        batches.append(
+            DKTBatch(padded_inputs, padded_targets, padded_next_concepts, valid_step_mask)
+        )
 
     return batches
 
@@ -121,10 +129,17 @@ def train_val_split(
     val_frac: float = 0.2,
     seed: int = 42,
 ) -> tuple[list, list]:
-    """Split by session (not by interaction) to prevent leakage."""
+    """Split by session (not by interaction) to prevent leakage.
+
+    NOTE: n_val is floored at 1, so with very few sequences (e.g. exactly 1
+    session total) the training split can end up empty — build_batches([])
+    then yields no batches, and the training loop simply trains on zero
+    batches per epoch without raising. Callers needing a real fit should
+    ensure there are at least a handful of sessions.
+    """
     import random
     rng = random.Random(seed)
-    seqs = list(sequences)
-    rng.shuffle(seqs)
-    n_val = max(1, int(len(seqs) * val_frac))
-    return seqs[n_val:], seqs[:n_val]
+    shuffled_sequences = list(sequences)
+    rng.shuffle(shuffled_sequences)
+    n_val = max(1, int(len(shuffled_sequences) * val_frac))
+    return shuffled_sequences[n_val:], shuffled_sequences[:n_val]

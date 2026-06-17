@@ -134,7 +134,7 @@ export default function StudySession() {
         if (next.is_new_concept && next.concept_id) {
           // Fetch theory non-blocking — cold_attempt shows the problem first
           api.getConcept(next.concept_id)
-            .then(c => setTheoryMd(c.theory_md ?? null))
+            .then(concept => setTheoryMd(concept.theory_md ?? null))
             .catch(() => {})
           setColdSelected(null)
           setPhase('cold_attempt')
@@ -142,7 +142,7 @@ export default function StudySession() {
           setPhase('question')
           if (next.concept_id) {
             api.getConcept(next.concept_id)
-              .then(c => setTheoryMd(c.theory_md))
+              .then(concept => setTheoryMd(concept.theory_md))
               .catch(() => {})
           }
         }

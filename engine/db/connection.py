@@ -10,14 +10,16 @@ def get_connection() -> sqlite3.Connection:
     """Return an open connection with row_factory and foreign-key enforcement."""
     conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
+    # SQLite has foreign keys OFF by default per-connection; without this,
+    # concept_prereq/card_state rows could silently reference deleted concepts.
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
 def init_db() -> None:
     """Create the database, apply schema, and run additive migrations."""
-    path = _db_path()
-    db_dir = os.path.dirname(path)
+    db_path = _db_path()
+    db_dir = os.path.dirname(db_path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
     with get_connection() as conn:
@@ -26,8 +28,14 @@ def init_db() -> None:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(concept)").fetchall()}
-    if "theory_md" not in existing:
+    """Additive-only migrations for columns added after initial deployment.
+
+    executescript() above runs schema.sql idempotently for new tables, but
+    SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an existing
+    table — so newly-added columns need an explicit ALTER TABLE here.
+    """
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(concept)").fetchall()}
+    if "theory_md" not in existing_columns:
         conn.execute("ALTER TABLE concept ADD COLUMN theory_md TEXT")
 
 

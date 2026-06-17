@@ -49,12 +49,12 @@ def get_all_concepts() -> list[Concept]:
             "SELECT * FROM concept_prereq"
         ).fetchall()
 
-    prereqs: dict[str, list[str]] = {}
+    prereqs_by_concept_id: dict[str, list[str]] = {}
     for row in prereq_rows:
-        prereqs.setdefault(row["concept_id"], []).append(row["prereq_id"])
+        prereqs_by_concept_id.setdefault(row["concept_id"], []).append(row["prereq_id"])
 
     return [
-        _row_to_concept(row, prereqs.get(row["id"], []))
+        _row_to_concept(row, prereqs_by_concept_id.get(row["id"], []))
         for row in concept_rows
     ]
 
@@ -233,7 +233,7 @@ def get_sample_exams() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM sample_exam ORDER BY id"
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [dict(row) for row in rows]
 
 
 def get_journal_stats() -> dict:

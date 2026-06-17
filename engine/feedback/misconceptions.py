@@ -148,4 +148,8 @@ def get_notes(kind: str, ask: str, distractor_index: int) -> str:
     notes = _notes.get(key, [])
     if not notes:
         return ""
+    # Notes aren't written one-per-distractor-slot (make_mc_choices can
+    # generate more wrong answers than a kind/ask has documented
+    # misconceptions for), so wrap around with modulo instead of indexing
+    # directly — this never raises even if distractor_index is out of range.
     return notes[distractor_index % len(notes)]

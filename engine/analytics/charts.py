@@ -35,8 +35,8 @@ def readiness_over_time(snapshots: list[dict], pass_threshold: float = 0.70) -> 
         ax.set_axis_off()
         return _fig_to_png(fig)
 
-    dates = [datetime.fromisoformat(s["taken_at"]) for s in snapshots]
-    scores = [s["score"] for s in snapshots]
+    dates = [datetime.fromisoformat(snapshot["taken_at"]) for snapshot in snapshots]
+    scores = [snapshot["score"] for snapshot in snapshots]
 
     fig, ax = plt.subplots(figsize=(8, 3.5), facecolor="#0f1117")
     ax.set_facecolor("#1a1d27")
@@ -75,15 +75,19 @@ def category_mastery(detail: dict) -> bytes:
         ax.set_axis_off()
         return _fig_to_png(fig)
 
-    cats = list(detail.keys())
-    scores = [detail[c]["score"] for c in cats]
-    colors = ["#6c8ef5" if s >= 0.70 else "#fbbf24" if s >= 0.50 else "#f87171"
-              for s in scores]
+    categories = list(detail.keys())
+    scores = [detail[category]["score"] for category in categories]
+    # Traffic-light coloring: green at/above pass threshold, amber for
+    # borderline, red for categories that need real attention.
+    colors = [
+        "#6c8ef5" if score >= 0.70 else "#fbbf24" if score >= 0.50 else "#f87171"
+        for score in scores
+    ]
 
-    fig, ax = plt.subplots(figsize=(6, max(2.5, len(cats) * 0.7)), facecolor="#0f1117")
+    fig, ax = plt.subplots(figsize=(6, max(2.5, len(categories) * 0.7)), facecolor="#0f1117")
     ax.set_facecolor("#1a1d27")
 
-    bars = ax.barh(cats, scores, color=colors, height=0.5)
+    bars = ax.barh(categories, scores, color=colors, height=0.5)
     ax.set_xlim(0, 1.05)
     ax.axvline(0.70, color="#4ade80", linewidth=1.2, linestyle="--",
                alpha=0.7, label="70%")
@@ -109,14 +113,14 @@ def ablation_comparison(fsrs_log: list[dict], dkt_log: list[dict],
     ax.set_facecolor("#1a1d27")
 
     if fsrs_log:
-        steps_f = [d["step"] for d in fsrs_log]
-        scores_f = [d["readiness"] for d in fsrs_log]
-        ax.plot(steps_f, scores_f, color="#8892a4", linewidth=2, label="FSRS-only")
+        fsrs_steps = [entry["step"] for entry in fsrs_log]
+        fsrs_scores = [entry["readiness"] for entry in fsrs_log]
+        ax.plot(fsrs_steps, fsrs_scores, color="#8892a4", linewidth=2, label="FSRS-only")
 
     if dkt_log:
-        steps_d = [d["step"] for d in dkt_log]
-        scores_d = [d["readiness"] for d in dkt_log]
-        ax.plot(steps_d, scores_d, color="#6c8ef5", linewidth=2, label="FSRS+DKT")
+        dkt_steps = [entry["step"] for entry in dkt_log]
+        dkt_scores = [entry["readiness"] for entry in dkt_log]
+        ax.plot(dkt_steps, dkt_scores, color="#6c8ef5", linewidth=2, label="FSRS+DKT")
 
     ax.axhline(pass_threshold, color="#4ade80", linewidth=1.2,
                linestyle="--", alpha=0.7, label=f"Pass ({pass_threshold:.0%})")
@@ -140,20 +144,23 @@ def predicted_vs_actual(sample_exams: list[dict]) -> bytes:
     Args:
         sample_exams: list of {taken_at, score, predicted} dicts
     """
-    valid = [e for e in sample_exams if e.get("predicted") is not None]
+    # DKT predictions are only available once the model is active (see
+    # engine.tracing.infer.dkt_is_active), so exams taken before that point
+    # have predicted=None and can't be plotted against an actual score.
+    predicted_exams = [exam for exam in sample_exams if exam.get("predicted") is not None]
 
     fig, ax = plt.subplots(figsize=(5, 4), facecolor="#0f1117")
     ax.set_facecolor("#1a1d27")
 
-    if not valid:
+    if not predicted_exams:
         ax.text(0.5, 0.5, "No sample exam data yet", transform=ax.transAxes,
                 ha="center", va="center", color="#8892a4", fontsize=12)
         ax.set_axis_off()
         return _fig_to_png(fig)
 
-    xs = [e["predicted"] for e in valid]
-    ys = [e["score"] for e in valid]
-    ax.scatter(xs, ys, color="#6c8ef5", s=60, zorder=3)
+    predicted_scores = [exam["predicted"] for exam in predicted_exams]
+    actual_scores = [exam["score"] for exam in predicted_exams]
+    ax.scatter(predicted_scores, actual_scores, color="#6c8ef5", s=60, zorder=3)
     ax.plot([0, 1], [0, 1], color="#2e3245", linewidth=1, linestyle="--")
     ax.axhline(0.70, color="#4ade80", linewidth=1, linestyle=":", alpha=0.6)
     ax.axvline(0.70, color="#4ade80", linewidth=1, linestyle=":", alpha=0.6)

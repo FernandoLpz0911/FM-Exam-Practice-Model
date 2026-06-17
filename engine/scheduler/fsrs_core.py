@@ -10,15 +10,17 @@ DECAY: float = -0.5
 FACTOR: float = 19.0 / 81.0  # guarantees R(S, S) = 0.90 exactly
 
 
-def retrievability(t: float, stability: float) -> float:
+def retrievability(elapsed_days: float, stability: float) -> float:
     """Probability of recall given elapsed days t and current stability S.
 
     R(0, S) = 1.0 always.
-    R(S, S) = 0.90 by definition of stability.
+    R(S, S) = 0.90 by definition of stability (that's what FACTOR is tuned for).
     """
     if stability <= 0:
+        # A concept with no/invalid stability hasn't been learned yet —
+        # treat recall probability as zero rather than dividing by it below.
         return 0.0
-    return float((1.0 + FACTOR * t / stability) ** DECAY)
+    return float((1.0 + FACTOR * elapsed_days / stability) ** DECAY)
 
 
 def interval_for_target(stability: float, target_retention: float = 0.9) -> int:

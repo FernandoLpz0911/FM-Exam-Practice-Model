@@ -16,16 +16,18 @@ def build_and_save(concept_ids: list[str]) -> dict[str, int]:
     if they have changed, because reindexing invalidates any trained DKT checkpoint.
     """
     if INDEX_PATH.exists():
-        existing: dict[str, int] = json.loads(INDEX_PATH.read_text())
-        if set(existing.keys()) == set(concept_ids):
-            return existing
+        existing_index: dict[str, int] = json.loads(INDEX_PATH.read_text())
+        if set(existing_index.keys()) == set(concept_ids):
+            return existing_index
         raise RuntimeError(
             "concept_index.json exists but concept IDs have changed. "
             "Delete it only if you are retraining DKT from scratch."
         )
-    index = {cid: i for i, cid in enumerate(sorted(concept_ids))}
-    INDEX_PATH.write_text(json.dumps(index, indent=2, sort_keys=True))
-    return index
+    # Sort before assigning indices so the mapping is reproducible across
+    # runs regardless of the order concept_ids happens to arrive in.
+    new_index = {concept_id: i for i, concept_id in enumerate(sorted(concept_ids))}
+    INDEX_PATH.write_text(json.dumps(new_index, indent=2, sort_keys=True))
+    return new_index
 
 
 def load() -> dict[str, int]:

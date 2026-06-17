@@ -80,27 +80,34 @@ def next_concept(
     return None
 
 
-def _urgency(cs: CardState, now: datetime) -> float:
+def _urgency(card_state: CardState, now: datetime) -> float:
     """How urgently a card needs review: 1 - R(elapsed, S), capped at 1."""
-    if cs.stability is None or cs.stability <= 0:
+    if card_state.stability is None or card_state.stability <= 0:
         return 1.0
-    elapsed = (now - cs.due).total_seconds() / 86400 if cs.due else 0.0
-    r = retrievability(elapsed + (cs.stability or 1.0), cs.stability)
-    return max(0.0, 1.0 - r)
+    elapsed_days = (now - card_state.due).total_seconds() / 86400 if card_state.due else 0.0
+    # Re-anchor at the card's own stability (same trick as readiness.py's
+    # FSRS fallback) so a card exactly on schedule reads as R(S, S) = 0.90.
+    recall_probability = retrievability(
+        elapsed_days + (card_state.stability or 1.0), card_state.stability
+    )
+    return max(0.0, 1.0 - recall_probability)
 
 
 def _prereqs_warm(concept: Concept, now: datetime) -> bool:
     """True when all prerequisites were reviewed within PREREQUISITE_WARMTH_DAYS."""
     for prereq_id in concept.prerequisites:
-        cs = store.get_or_create(prereq_id)
-        if cs.last_review is None:
+        prereq_state = store.get_or_create(prereq_id)
+        if prereq_state.last_review is None:
             return False
-        lr = cs.last_review
-        if lr.tzinfo is None:
-            lr = lr.replace(tzinfo=timezone.utc)
-        ref = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
-        days_since = (ref - lr).total_seconds() / 86400
-        if days_since > PREREQUISITE_WARMTH_DAYS:
+        last_review = prereq_state.last_review
+        # DB-loaded datetimes can come back naive depending on storage
+        # format; normalize both sides to UTC-aware before subtracting,
+        # or this raises TypeError: can't subtract naive and aware datetimes.
+        if last_review.tzinfo is None:
+            last_review = last_review.replace(tzinfo=timezone.utc)
+        now_aware = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        days_since_review = (now_aware - last_review).total_seconds() / 86400
+        if days_since_review > PREREQUISITE_WARMTH_DAYS:
             return False
     return True
 
@@ -113,15 +120,15 @@ def _warmth_multiplier(concept: Concept, now: datetime) -> float:
 
 
 def _find_concept(concept_id: str) -> Concept | None:
-    for c in dao.get_all_concepts():
-        if c.id == concept_id:
-            return c
+    for concept in dao.get_all_concepts():
+        if concept.id == concept_id:
+            return concept
     return None
 
 
 def _pin_ask(concept: Concept, ask: str) -> Concept:
     """Return a shallow copy of concept with generator ask list pinned to [ask]."""
-    gen = copy.deepcopy(concept.generator)
-    gen["params"]["ask"] = [ask]
+    pinned_generator = copy.deepcopy(concept.generator)
+    pinned_generator["params"]["ask"] = [ask]
     from dataclasses import replace
-    return replace(concept, generator=gen)
+    return replace(concept, generator=pinned_generator)

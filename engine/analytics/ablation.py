@@ -22,8 +22,8 @@ from engine.analytics.readiness import compute_readiness
 from engine.db.dao import Concept
 
 
-def _fresh_skill(concept_ids: list[str], base: float) -> dict[str, float]:
-    return {cid: base for cid in concept_ids}
+def _fresh_skill(concept_ids: list[str], base_accuracy: float) -> dict[str, float]:
+    return {concept_id: base_accuracy for concept_id in concept_ids}
 
 
 def _fsrs_score(concept: Concept, reps: dict[str, int]) -> float:
@@ -36,9 +36,9 @@ def _dkt_score(
     p_correct: dict[str, float],
     reps: dict[str, int],
 ) -> float:
-    """DKT weakness weighted by tier; fall back to urgency proxy if no pred."""
-    p = p_correct.get(concept.id, 0.5)
-    return (1.0 - p) * concept.exam_weight_tier
+    """DKT weakness weighted by tier; fall back to a neutral 0.5 prior if no pred."""
+    p_correct_value = p_correct.get(concept.id, 0.5)
+    return (1.0 - p_correct_value) * concept.exam_weight_tier
 
 
 def _dkt_predict_batch(
@@ -48,15 +48,18 @@ def _dkt_predict_batch(
     device: torch.device,
 ) -> dict[int, float]:
     """Run one forward pass on history; return {concept_idx: P(correct)}."""
-    T = len(history)
-    x = torch.zeros(1, T, 2 * n_concepts)
-    for t, (c_idx, correct) in enumerate(history):
-        hot = c_idx if correct else c_idx + n_concepts
-        x[0, t, hot] = 1.0
+    n_steps = len(history)
+    one_hot_input = torch.zeros(1, n_steps, 2 * n_concepts)
+    for t, (concept_idx, is_correct) in enumerate(history):
+        # Two-hot encoding scheme: index = concept if correct, or
+        # concept + n_concepts if incorrect — matches the DKT model's
+        # training encoding (see engine/tracing/dataset.py:encode_sequence).
+        hot_index = concept_idx if is_correct else concept_idx + n_concepts
+        one_hot_input[0, t, hot_index] = 1.0
     with torch.no_grad():
-        preds = model(x.to(device))   # (1, T, M)
-    last = preds[0, -1, :].cpu()
-    return {i: float(last[i]) for i in range(n_concepts)}
+        predictions = model(one_hot_input.to(device))   # (1, T, M)
+    last_step_predictions = predictions[0, -1, :].cpu()
+    return {i: float(last_step_predictions[i]) for i in range(n_concepts)}
 
 
 def _simulate(
@@ -74,47 +77,59 @@ def _simulate(
     if device is None:
         device = torch.device("cpu")
 
-    idx_to_cid = {v: k for k, v in concept_index.items()}
-    M = len(concept_index)
-    concept_ids = [c.id for c in concepts]
+    index_to_concept_id = {idx: cid for cid, idx in concept_index.items()}
+    n_concepts = len(concept_index)
+    concept_ids = [concept.id for concept in concepts]
 
     skill = _fresh_skill(concept_ids, base_accuracy)
-    reps: dict[str, int] = {cid: 0 for cid in concept_ids}
-    history_idx: list[tuple[int, int]] = []   # (concept_idx, is_correct)
+    reps: dict[str, int] = {concept_id: 0 for concept_id in concept_ids}
+    answer_history: list[tuple[int, int]] = []   # (concept_idx, is_correct)
     log: list[dict] = []
 
-    p_correct_cache: dict[str, float] = {}   # recomputed every step for DKT
+    # Cache of DKT P(correct) predictions, refreshed periodically below —
+    # stale between refreshes, but re-running the LSTM every single step
+    # would make a 300-step simulation prohibitively slow.
+    p_correct_cache: dict[str, float] = {}
 
     for step in range(n_steps):
-        # Select concept
         if policy == "fsrs" or model is None:
-            concept = max(concepts, key=lambda c: _fsrs_score(c, reps))
+            chosen_concept = max(concepts, key=lambda c: _fsrs_score(c, reps))
         else:
-            concept = max(concepts, key=lambda c: _dkt_score(c, p_correct_cache, reps))
+            chosen_concept = max(
+                concepts, key=lambda c: _dkt_score(c, p_correct_cache, reps)
+            )
 
-        cid = concept.id
-        c_idx = concept_index.get(cid, 0)
+        concept_id = chosen_concept.id
+        concept_idx = concept_index.get(concept_id, 0)
 
-        # Simulate student response
-        p = min(0.95, skill[cid])
-        is_correct = int(rng.random() < p)
+        # Simulate the student's response using their true (oracle) skill —
+        # the DKT model never sees this value, only the resulting correct/
+        # incorrect outcome, just like in a real practice session.
+        p_correct_true = min(0.95, skill[concept_id])
+        is_correct = int(rng.random() < p_correct_true)
 
-        # Update
-        history_idx.append((c_idx, is_correct))
-        reps[cid] += 1
-        skill[cid] = min(0.95, skill[cid] + improvement_rate)
+        answer_history.append((concept_idx, is_correct))
+        reps[concept_id] += 1
+        skill[concept_id] = min(0.95, skill[concept_id] + improvement_rate)
 
-        # DKT prediction update every 5 steps (speed vs freshness tradeoff)
+        # Refresh the DKT prediction cache every 5 steps (and on the very
+        # first step) — a speed/freshness tradeoff, since recomputing after
+        # every single answer is unnecessary for a slowly-drifting estimate.
         if policy == "dkt" and model is not None and (step % 5 == 0 or step == 0):
-            idx_preds = _dkt_predict_batch(model, history_idx[-200:], M, device)
-            p_correct_cache = {idx_to_cid[i]: v for i, v in idx_preds.items()}
+            predictions_by_idx = _dkt_predict_batch(
+                model, answer_history[-200:], n_concepts, device
+            )
+            p_correct_cache = {
+                index_to_concept_id[idx]: value for idx, value in predictions_by_idx.items()
+            }
 
-        # Compute readiness using current skill as P(correct) oracle
+        # Compute readiness using the student's current true skill as the
+        # P(correct) oracle (not the DKT prediction) — this isolates how good
+        # the *selection policy* is, independent of DKT prediction accuracy.
         readiness, _ = compute_readiness(concepts, skill)
-        log.append({"step": step + 1, "readiness": readiness, "concept_id": cid})
+        log.append({"step": step + 1, "readiness": readiness, "concept_id": concept_id})
 
     return log
-
 
 
 def run_ablation(
@@ -135,19 +150,23 @@ def run_ablation(
     from engine.tracing.train import train as dkt_train
 
     concept_index = load_index()
-    concepts: list[Concept] = []  # filled below inside env
+    concepts: list[Concept] = []  # populated once the temp DB is seeded, below
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # NOTE: this constructed Random instance is never assigned or used —
+    # looks like leftover/dead code from an earlier version of this function.
+    # The actual simulation RNGs are created separately below (seed + 1).
     random.Random(seed)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "warmup.db")
-        ckpt_dir = Path(tmp) / "checkpoints"
-        ckpt_dir.mkdir()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        warmup_db_path = str(Path(tmp_dir) / "warmup.db")
+        checkpoint_dir = Path(tmp_dir) / "checkpoints"
+        checkpoint_dir.mkdir()
 
-        # --- warmup: seed synthetic data into temp DB ---
-        old_db = os.environ.get("DB_PATH")
-        os.environ["DB_PATH"] = db_path
+        # Point DB_PATH at an isolated temp DB so this ablation run never
+        # touches the real database or its DKT checkpoints.
+        previous_db_path = os.environ.get("DB_PATH")
+        os.environ["DB_PATH"] = warmup_db_path
         try:
             init_db()
             from engine.db.seed import load as seed_load
@@ -155,60 +174,68 @@ def run_ablation(
             concepts = get_all_concepts()
 
             from engine.tracing.synthetic import seed_synthetic
-            n_warmup = seed_synthetic(
+            n_warmup_interactions = seed_synthetic(
                 n_sessions=n_warmup_sessions,
                 steps_per_session=n_warmup_steps,
                 rng_seed=seed,
             )
 
-            # --- train DKT on warmup data ---
+            # Train a throwaway DKT model on the synthetic warmup data, redirecting
+            # the training module's checkpoint paths so this never overwrites the
+            # real trained model on disk.
             import engine.tracing.train as train_mod
-            old_ckpt_dir = train_mod.CHECKPOINT_DIR
-            old_best = train_mod._BEST_CHECKPOINT
-            old_log = train_mod._TRAIN_LOG
-            train_mod.CHECKPOINT_DIR = ckpt_dir
-            train_mod._BEST_CHECKPOINT = ckpt_dir / "dkt_best.pt"
-            train_mod._TRAIN_LOG = ckpt_dir / "log.jsonl"
+            previous_checkpoint_dir = train_mod.CHECKPOINT_DIR
+            previous_best_checkpoint = train_mod._BEST_CHECKPOINT
+            previous_train_log = train_mod._TRAIN_LOG
+            train_mod.CHECKPOINT_DIR = checkpoint_dir
+            train_mod._BEST_CHECKPOINT = checkpoint_dir / "dkt_best.pt"
+            train_mod._TRAIN_LOG = checkpoint_dir / "log.jsonl"
             try:
-                result = dkt_train(n_epochs=n_epochs, hidden=hidden, seed=seed)
-                ckpt_path = train_mod._BEST_CHECKPOINT
-                trained_auc = result.get("val_auc", float("nan"))
+                training_result = dkt_train(n_epochs=n_epochs, hidden=hidden, seed=seed)
+                checkpoint_path = train_mod._BEST_CHECKPOINT
+                trained_val_auc = training_result.get("val_auc", float("nan"))
 
-                # load model weights
+                # If training produced no checkpoint (e.g. AUC was NaN every
+                # epoch because warmup data lacked variety), fall back to the
+                # FSRS-only policy by leaving model as None.
                 model: torch.nn.Module | None = None
-                if ckpt_path.exists():
-                    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
-                    M = len(concept_index)
-                    dkt = DKT(M, hidden=ckpt["hidden"], layers=ckpt["layers"]).to(device)
-                    dkt.load_state_dict(ckpt["model_state"])
-                    dkt.eval()
-                    model = dkt
+                if checkpoint_path.exists():
+                    checkpoint = torch.load(
+                        checkpoint_path, map_location=device, weights_only=True
+                    )
+                    n_concepts = len(concept_index)
+                    dkt_model = DKT(
+                        n_concepts, hidden=checkpoint["hidden"], layers=checkpoint["layers"]
+                    ).to(device)
+                    dkt_model.load_state_dict(checkpoint["model_state"])
+                    dkt_model.eval()
+                    model = dkt_model
             finally:
-                train_mod.CHECKPOINT_DIR = old_ckpt_dir
-                train_mod._BEST_CHECKPOINT = old_best
-                train_mod._TRAIN_LOG = old_log
+                train_mod.CHECKPOINT_DIR = previous_checkpoint_dir
+                train_mod._BEST_CHECKPOINT = previous_best_checkpoint
+                train_mod._TRAIN_LOG = previous_train_log
 
         finally:
-            if old_db is None:
+            if previous_db_path is None:
                 os.environ.pop("DB_PATH", None)
             else:
-                os.environ["DB_PATH"] = old_db
+                os.environ["DB_PATH"] = previous_db_path
 
-    # --- run simulations (pure Python, no DB) ---
-    fsrs_log = _simulate(
+    # Run both policies on independent simulated students (pure Python, no DB).
+    fsrs_only_log = _simulate(
         "fsrs", concepts, None, concept_index,
         n_trial_steps, random.Random(seed + 1),
         base_accuracy, improvement_rate, device,
     )
-    dkt_log = _simulate(
+    dkt_hybrid_log = _simulate(
         "dkt", concepts, model, concept_index,
         n_trial_steps, random.Random(seed + 1),   # same RNG seed → same student luck
         base_accuracy, improvement_rate, device,
     )
 
     return {
-        "fsrs_only": fsrs_log,
-        "dkt_hybrid": dkt_log,
-        "n_warmup_interactions": n_warmup,
-        "warmup_val_auc": trained_auc,
+        "fsrs_only": fsrs_only_log,
+        "dkt_hybrid": dkt_hybrid_log,
+        "n_warmup_interactions": n_warmup_interactions,
+        "warmup_val_auc": trained_val_auc,
     }

@@ -5,6 +5,19 @@ Tier 2 — multi-step application: combine formulas, set up the calculation.
 Tier 3 — novel / combined reasoning: memoryless property, LOTUS, Jacobians, etc.
 
 Reps thresholds are in engine.config. Unknown (kind, ask) pairs default to tier 2.
+
+NOTE — likely copy/paste leftover from the separate Exam P engine: every key
+below (bayes, binomial, poisson, normal, clt, ...) is a Exam P probability
+topic. None of them match this project's FM generator kinds (interest_tvm,
+annuity_immediate, bond_price, etc. — see engine/generation/{interest,
+annuity, loan, bond, duration, derivatives}.py). Since filter_asks() looks up
+ASK_DIFFICULTY.get((kind, ask), 2), every FM (kind, ask) pair misses this
+table and silently falls back to the tier-2 default — the difficulty ladder
+described in CLAUDE.md is effectively a no-op for this engine until this
+table is repopulated with FM (kind, ask) pairs. This mirrors the
+BAND_WEIGHT/readiness.py bug fixed previously (P-exam categories left in an
+FM-only file), but fixing it means writing a full FM difficulty map, which is
+a content task beyond this rename/comment pass.
 """
 from __future__ import annotations
 
@@ -125,7 +138,11 @@ ASK_DIFFICULTY: dict[tuple[str, str], int] = {
 
 
 def max_tier_for_reps(reps: int, tier2_threshold: int, tier3_threshold: int) -> int:
-    """Difficulty ceiling based on how many times a concept has been reviewed."""
+    """Difficulty ceiling based on how many times a concept has been reviewed.
+
+    Learners start capped at tier 1 (single-step formulas) and earn access to
+    harder tiers only after enough repetitions to have internalized the basics.
+    """
     if reps >= tier3_threshold:
         return 3
     if reps >= tier2_threshold:
@@ -134,6 +151,14 @@ def max_tier_for_reps(reps: int, tier2_threshold: int, tier3_threshold: int) -> 
 
 
 def filter_asks(kind: str, ask_list: list[str], max_tier: int) -> list[str]:
-    """Return asks with difficulty <= max_tier. Falls back to full list if none qualify."""
-    eligible = [a for a in ask_list if ASK_DIFFICULTY.get((kind, a), 2) <= max_tier]
-    return eligible if eligible else ask_list
+    """Return asks with difficulty <= max_tier. Falls back to full list if none qualify.
+
+    The fallback matters because tier filtering must never leave a concept
+    with zero eligible asks — a brand-new concept with only tier-2+ asks
+    registered should still be practiceable by a tier-1-capped learner.
+    """
+    eligible_asks = [
+        candidate_ask for candidate_ask in ask_list
+        if ASK_DIFFICULTY.get((kind, candidate_ask), 2) <= max_tier
+    ]
+    return eligible_asks if eligible_asks else ask_list

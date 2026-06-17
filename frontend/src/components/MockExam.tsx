@@ -79,13 +79,13 @@ export default function MockExam() {
     stopTimer()
     setPhase('grading')
     const elapsed = Math.floor((Date.now() - startTime.current) / 1000)
-    const answerList = problems.map(p => ({
-      item_id: p.item_id,
-      user_answer: answers[p.item_id] ?? '',
+    const answerList = problems.map(problem => ({
+      item_id: problem.item_id,
+      user_answer: answers[problem.item_id] ?? '',
     }))
     try {
-      const res = await api.gradeMockExam(sessionId, answerList, elapsed)
-      setResult(res)
+      const gradeResult = await api.gradeMockExam(sessionId, answerList, elapsed)
+      setResult(gradeResult)
       setPhase('results')
     } catch (e) {
       setError(String(e))
@@ -175,20 +175,20 @@ export default function MockExam() {
         </div>
 
         <div className="me-cat-grid">
-          {Object.entries(result.by_category).map(([cat, v]) => (
+          {Object.entries(result.by_category).map(([cat, categoryResult]) => (
             <div key={cat} className="me-cat-card">
               <div className="me-cat-name">{cat}</div>
               <div className="me-cat-score">
-                {v.correct}/{v.total}
+                {categoryResult.correct}/{categoryResult.total}
                 &nbsp;·&nbsp;
-                {Math.round(v.correct / v.total * 100)}%
+                {Math.round(categoryResult.correct / categoryResult.total * 100)}%
               </div>
               <div className="me-cat-bar">
                 <div
                   className="me-cat-fill"
                   style={{
-                    width: `${Math.round(v.correct / v.total * 100)}%`,
-                    background: v.correct / v.total >= 0.7 ? '#4ade80' : '#f87171',
+                    width: `${Math.round(categoryResult.correct / categoryResult.total * 100)}%`,
+                    background: categoryResult.correct / categoryResult.total >= 0.7 ? '#4ade80' : '#f87171',
                   }}
                 />
               </div>
@@ -199,17 +199,17 @@ export default function MockExam() {
         <div className="me-detail">
           <h3>Question review</h3>
           <div className="me-review-list">
-            {result.results.map((r, i) => {
-              const prob = problems.find(p => p.item_id === r.item_id)
+            {result.results.map((resultItem, i) => {
+              const matchedProblem = problems.find(p => p.item_id === resultItem.item_id)
               return (
-                <div key={r.item_id} className={`me-review-row ${r.is_correct ? 'correct' : 'wrong'}`}>
+                <div key={resultItem.item_id} className={`me-review-row ${resultItem.is_correct ? 'correct' : 'wrong'}`}>
                   <span className="me-q-num">Q{i + 1}</span>
-                  <span className="me-icon">{r.is_correct ? '✓' : '✗'}</span>
-                  <span className="me-concept-name">{prob?.concept_name}</span>
-                  {!r.is_correct && (
+                  <span className="me-icon">{resultItem.is_correct ? '✓' : '✗'}</span>
+                  <span className="me-concept-name">{matchedProblem?.concept_name}</span>
+                  {!resultItem.is_correct && (
                     <span className="me-answers">
-                      Your: <em>{r.user_answer || '—'}</em>
-                      &nbsp;Correct: <strong>{r.correct_answer}</strong>
+                      Your: <em>{resultItem.user_answer || '—'}</em>
+                      &nbsp;Correct: <strong>{resultItem.correct_answer}</strong>
                     </span>
                   )}
                 </div>
@@ -225,7 +225,7 @@ export default function MockExam() {
     )
   }
 
-  const prob = problems[currentIdx]
+  const currentProblem = problems[currentIdx]
   const answered = Object.keys(answers).length
   const timerClass = timeLeft < 600 ? 'me-timer danger' : timeLeft < 1800 ? 'me-timer warn' : 'me-timer'
 
@@ -264,27 +264,27 @@ export default function MockExam() {
       {/* Problem */}
       <div className="me-problem">
         <div className="me-problem-meta">
-          <span className="me-concept-tag">{prob.concept_name}</span>
-          <span className="me-cat-tag">{prob.category}</span>
+          <span className="me-concept-tag">{currentProblem.concept_name}</span>
+          <span className="me-cat-tag">{currentProblem.category}</span>
           <button
-            className={`me-flag-btn ${flagged.has(prob.item_id) ? 'active' : ''}`}
-            onClick={() => toggleFlag(prob.item_id)}
+            className={`me-flag-btn ${flagged.has(currentProblem.item_id) ? 'active' : ''}`}
+            onClick={() => toggleFlag(currentProblem.item_id)}
           >
-            {flagged.has(prob.item_id) ? '🚩 Flagged' : '⚑ Flag'}
+            {flagged.has(currentProblem.item_id) ? '🚩 Flagged' : '⚑ Flag'}
           </button>
         </div>
 
         <div
           className="me-statement"
-          dangerouslySetInnerHTML={{ __html: renderMath(prob.statement) }}
+          dangerouslySetInnerHTML={{ __html: renderMath(currentProblem.statement) }}
         />
 
         <div className="me-choices">
-          {prob.choices.map(c => (
+          {currentProblem.choices.map(c => (
             <button
               key={c}
-              className={`me-choice ${answers[prob.item_id] === c ? 'selected' : ''}`}
-              onClick={() => setAnswers(prev => ({ ...prev, [prob.item_id]: c }))}
+              className={`me-choice ${answers[currentProblem.item_id] === c ? 'selected' : ''}`}
+              onClick={() => setAnswers(prev => ({ ...prev, [currentProblem.item_id]: c }))}
             >
               {c}
             </button>

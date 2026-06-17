@@ -74,18 +74,18 @@ export default function Dashboard() {
   const refresh = async () => {
     setLoading(true)
     try {
-      const [{ states: s }, d, r, j, t] = await Promise.all([
+      const [{ states: statesResult }, dktStatus, readinessResult, journalResult, timingResult] = await Promise.all([
         api.getState(),
         api.getDKTStatus(),
         api.getReadiness(false),
         api.getJournal(),
         api.getTiming(),
       ])
-      setStates(s)
-      setDkt(d)
-      setReadiness(r)
-      setJournal(j.stats)
-      setTiming(t)
+      setStates(statesResult)
+      setDkt(dktStatus)
+      setReadiness(readinessResult)
+      setJournal(journalResult.stats)
+      setTiming(timingResult)
     } finally {
       setLoading(false)
     }
@@ -146,15 +146,15 @@ export default function Dashboard() {
           <h2 className="db-heading">Readiness</h2>
           {readiness && <ReadinessGauge score={readiness.score} />}
           <div className="db-readiness-detail">
-            {readiness && Object.entries(readiness.detail).map(([cat, d]) => (
+            {readiness && Object.entries(readiness.detail).map(([cat, categoryDetail]) => (
               <div key={cat} className="db-cat-row">
                 <span className="db-cat-name">{cat}</span>
                 <div className="db-cat-bar-wrap">
-                  <div className="db-cat-bar" style={{ width: `${d.score * 100}%`,
-                    background: d.score >= 0.70 ? 'var(--green)' : d.score >= 0.50 ? 'var(--yellow)' : 'var(--red)'
+                  <div className="db-cat-bar" style={{ width: `${categoryDetail.score * 100}%`,
+                    background: categoryDetail.score >= 0.70 ? 'var(--green)' : categoryDetail.score >= 0.50 ? 'var(--yellow)' : 'var(--red)'
                   }} />
                 </div>
-                <span className="db-cat-pct">{Math.round(d.score * 100)}%</span>
+                <span className="db-cat-pct">{Math.round(categoryDetail.score * 100)}%</span>
               </div>
             ))}
           </div>
@@ -287,25 +287,25 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {timing.map((t) => {
-                  const cls = t.avg_s > 360 ? 'timing-danger'
-                    : t.avg_s > 180 ? 'timing-warning'
+                {timing.map((entry) => {
+                  const cls = entry.avg_s > 360 ? 'timing-danger'
+                    : entry.avg_s > 180 ? 'timing-warning'
                     : 'timing-ok'
-                  const mins = Math.floor(t.avg_s / 60)
-                  const secs = String(Math.round(t.avg_s % 60)).padStart(2, '0')
+                  const mins = Math.floor(entry.avg_s / 60)
+                  const secs = String(Math.round(entry.avg_s % 60)).padStart(2, '0')
                   return (
-                    <tr key={t.concept_id}>
-                      <td className="db-concept-name">{t.concept_name}</td>
+                    <tr key={entry.concept_id}>
+                      <td className="db-concept-name">{entry.concept_name}</td>
                       <td className={`mono ${cls}`}>{mins}:{secs}</td>
-                      <td className="mono">{t.n_answered}</td>
-                      <td className={`mono ${t.pct_over_target > 0 ? cls : ''}`}>
-                        {t.pct_over_target > 0 ? `${t.pct_over_target}%` : '—'}
+                      <td className="mono">{entry.n_answered}</td>
+                      <td className={`mono ${entry.pct_over_target > 0 ? cls : ''}`}>
+                        {entry.pct_over_target > 0 ? `${entry.pct_over_target}%` : '—'}
                       </td>
                       <td>
                         <div className="db-timing-bar-wrap">
                           <div
                             className={`db-timing-bar ${cls}`}
-                            style={{ width: `${Math.min(100, (t.avg_s / 360) * 100)}%` }}
+                            style={{ width: `${Math.min(100, (entry.avg_s / 360) * 100)}%` }}
                           />
                           <div className="db-timing-target" />
                         </div>
@@ -350,14 +350,14 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((s) => (
-                  <tr key={s.concept_id}>
-                    <td className="db-concept-name">{s.concept_name}</td>
-                    <td>{stateTag(s.state)}</td>
-                    <td className="mono">{s.reps}</td>
-                    <td className="mono">{s.lapses > 0 ? <span className="overdue">{s.lapses}</span> : 0}</td>
-                    <td>{stabilityBar(s.stability)}</td>
-                    <td>{formatDue(s.due)}</td>
+                {sorted.map((cardState) => (
+                  <tr key={cardState.concept_id}>
+                    <td className="db-concept-name">{cardState.concept_name}</td>
+                    <td>{stateTag(cardState.state)}</td>
+                    <td className="mono">{cardState.reps}</td>
+                    <td className="mono">{cardState.lapses > 0 ? <span className="overdue">{cardState.lapses}</span> : 0}</td>
+                    <td>{stabilityBar(cardState.stability)}</td>
+                    <td>{formatDue(cardState.due)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -1,6 +1,8 @@
 """Sanity tests: every registered generator produces a valid Problem with correct answer in choices."""
 import math
+
 import pytest
+
 import engine.generation  # noqa: F401
 from engine.generation.base import generate, list_kinds
 
@@ -102,3 +104,70 @@ def test_all_kinds_registered():
     }
     missing = expected - set(kinds)
     assert not missing, f"Missing from registry: {missing}"
+
+
+# Minimal ranges for each kind — used only to satisfy the rng calls before
+# the ask check, so the ValueError is reached.
+_BOGUS_ASK_RANGES = {
+    "interest_tvm":       {"i_range": [0.05, 0.06], "n_range": [5, 6], "pv_range": [1000, 1001]},
+    "interest_nominal":   {"i_range": [0.05, 0.06], "m_choices": [4, 12]},
+    "interest_force":     {"i_range": [0.05, 0.06], "t_range": [3, 6]},
+    "interest_discount":  {"i_range": [0.05, 0.06], "n_range": [5, 6]},
+    "annuity_immediate":  {"i_range": [0.05, 0.06], "n_range": [10, 11], "payment_range": [100, 101]},
+    "annuity_due":        {"i_range": [0.05, 0.06], "n_range": [10, 11], "payment_range": [100, 101]},
+    "perpetuity":         {"i_range": [0.05, 0.06], "payment_range": [100, 101]},
+    "deferred_annuity":   {"i_range": [0.05, 0.06], "n_range": [10, 11], "m_range": [3, 4], "payment_range": [100, 101]},
+    "annuity_varying":    {"i_range": [0.05, 0.06], "n_range": [10, 11], "base_payment_range": [100, 101]},
+    "loan_amort":         {"i_range": [0.05, 0.06], "n_range": [10, 11], "loan_range": [10000, 10001]},
+    "loan_split":         {"i_range": [0.05, 0.06], "n_range": [10, 11], "loan_range": [10000, 10001]},
+    "sinking_fund":       {"j_range": [0.06, 0.07], "i_range": [0.04, 0.05], "n_range": [10, 11], "loan_range": [10000, 10001]},
+    "bond_price":         {"coupon_rate_range": [0.06, 0.07], "yield_range": [0.05, 0.06], "n_range": [10, 11]},
+    "bond_makeham":       {"coupon_rate_range": [0.06, 0.07], "yield_range": [0.05, 0.06], "n_range": [10, 11]},
+    "bond_prem_disc":     {"coupon_rate_range": [0.06, 0.07], "yield_range": [0.05, 0.06], "n_range": [10, 11]},
+    "macaulay_duration":  {"coupon_rate_range": [0.06, 0.07], "yield_range": [0.05, 0.06], "n_range": [5, 6]},
+    "modified_duration":  {"coupon_rate_range": [0.06, 0.07], "yield_range": [0.05, 0.06], "n_range": [5, 6]},
+    "convexity":          {"coupon_rate_range": [0.06, 0.07], "yield_range": [0.05, 0.06], "n_range": [5, 6]},
+    "immunization":       {"yield_range": [0.04, 0.06]},
+    "spot_forward_rates": {"rate_range": [0.04, 0.06]},
+    "forward_contract":   {"spot_price_range": [95, 105], "rate_range": [0.04, 0.06], "maturity_range": [1, 3]},
+    "option_payoff":      {"strike_range": [95, 105]},
+    "put_call_parity":    {"spot_price_range": [95, 105], "rate_range": [0.04, 0.06], "maturity_range": [1, 2]},
+    "swap_rate":          {"n_range": [3, 4], "rate_range": [0.04, 0.06]},
+}
+
+
+@pytest.mark.parametrize("kind", list(_BOGUS_ASK_RANGES.keys()))
+def test_unknown_ask_raises_value_error(kind):
+    """Every generator must raise ValueError for an unrecognised ask."""
+    with pytest.raises(ValueError, match="Unknown ask"):
+        generate(kind, "__bogus__", _BOGUS_ASK_RANGES[kind], seed=42)
+
+
+def test_interest_discount_from_interest_alt_wrong_dedup():
+    """interest_discount discount_from_interest: seed=30 yields i=0.0784 where
+    1 - discount_factor rounds to exactly the correct answer (d = i/(1+i) = 0.0727),
+    triggering the fallback alt_wrong = annual_rate * 0.9 (line 242).
+    """
+    prob = generate(
+        "interest_discount", "discount_from_interest",
+        {"i_range": [0.01, 0.30], "d_range": [0.01, 0.30],
+         "n_range": [5, 6], "fv_range": [1000, 1001]},
+        seed=30,
+    )
+    assert prob is not None
+    assert not math.isnan(prob.correct_answer)
+    ca_fmt = f"{prob.correct_answer:.4f}"
+    assert any(ca_fmt == c for c in prob.choices)
+
+
+def test_annuity_varying_pv_geometric_g_collision():
+    """annuity_varying pv_geometric: seed=6 produces g ≈ i → g is nudged (line 247)."""
+    # seed=6 with i_range=[0.025, 0.026] produces i≈0.0255 and g=0.025 (abs diff < 0.001)
+    prob = generate(
+        "annuity_varying", "pv_geometric",
+        {"i_range": [0.025, 0.026], "n_range": [5, 10], "base_payment_range": [100, 200]},
+        seed=6,
+    )
+    assert prob is not None
+    # After nudge: g = 0.025 + 0.01 = 0.035 ≠ i ≈ 0.0255, so i ≠ g and pv computable
+    assert not math.isnan(prob.correct_answer)

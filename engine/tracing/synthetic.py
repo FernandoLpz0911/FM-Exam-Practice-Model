@@ -33,14 +33,15 @@ def seed_synthetic(
     rng = random.Random(rng_seed)
     concept_index = load_index()
     concept_ids = sorted(concept_index.keys())
-    len(concept_ids)
 
-    # Per-concept skill: starts low, improves independently
-    skill: dict[str, float] = {cid: base_accuracy for cid in concept_ids}
+    # Per-concept skill: starts at base_accuracy, improves independently each
+    # time that concept is practiced (capped at 0.95 so no concept reaches a
+    # deterministic 100% — keeps the synthetic labels noisy like real data).
+    skill: dict[str, float] = {concept_id: base_accuracy for concept_id in concept_ids}
 
-    total = 0
+    total_interactions = 0
     with get_connection() as conn:
-        for s in range(n_sessions):
+        for _ in range(n_sessions):
             started_at = _now_iso()
             cursor = conn.execute(
                 "INSERT INTO session (started_at) VALUES (?)", (started_at,)
@@ -48,12 +49,15 @@ def seed_synthetic(
             session_id = cursor.lastrowid
 
             for _ in range(steps_per_session):
-                cid = rng.choice(concept_ids)
-                p_correct = min(0.95, skill[cid])
+                concept_id = rng.choice(concept_ids)
+                p_correct = min(0.95, skill[concept_id])
                 is_correct = int(rng.random() < p_correct)
 
                 shown_at = _now_iso()
-                cursor = conn.execute(
+                # problem_kind/params_json/correct_answer/user_answer are
+                # placeholders — DKT training only reads concept_id and
+                # is_correct, so the synthetic rows don't need real problems.
+                conn.execute(
                     """
                     INSERT INTO interaction
                         (session_id, concept_id, seed, problem_kind, params_json,
@@ -63,7 +67,7 @@ def seed_synthetic(
                     """,
                     (
                         session_id,
-                        cid,
+                        concept_id,
                         0,
                         "synthetic:placeholder",
                         "{}",
@@ -76,12 +80,12 @@ def seed_synthetic(
                         shown_at,
                     ),
                 )
-                total += 1
-                skill[cid] = min(0.95, skill[cid] + improvement_rate)
+                total_interactions += 1
+                skill[concept_id] = min(0.95, skill[concept_id] + improvement_rate)
 
             conn.execute(
                 "UPDATE session SET ended_at = ? WHERE id = ?",
                 (_now_iso(), session_id),
             )
 
-    return total
+    return total_interactions

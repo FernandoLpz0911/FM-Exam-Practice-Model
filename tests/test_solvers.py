@@ -2,7 +2,9 @@
 Param dicts mirror what each generator actually stores in Problem.params.
 """
 import math
+
 import pytest
+
 from engine.feedback.solve import solve
 
 # All params use the exact keys generators store in Problem.params

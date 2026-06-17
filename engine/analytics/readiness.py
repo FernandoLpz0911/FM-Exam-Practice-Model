@@ -1,6 +1,6 @@
-"""P7.1 — Readiness score: DKT P(correct) × category bands × tiers → 0–1.
+"""FM readiness score: DKT P(correct) × category bands × tiers → 0–1.
 
-Formula (from KNOWLEDGE_TRACING_DKT.md §5):
+Formula:
     readiness = Σ_category  band_weight(c) ·
                   (Σ_{c in cat} tier_weight(c) · P_correct(c) /
                    Σ_{c in cat} tier_weight(c))
@@ -15,11 +15,14 @@ from datetime import datetime, timezone
 from engine.db.connection import get_connection
 from engine.db.dao import Concept
 
-# SOA Exam P weight band midpoints per category
+# SOA Exam FM approximate topic weights (sum ≈ 1.0)
 BAND_WEIGHT: dict[str, float] = {
-    "general": 0.135,       # midpoint of [0.10, 0.17]
-    "univariate": 0.435,    # midpoint of [0.40, 0.47]
-    "multivariate": 0.435,  # midpoint of [0.40, 0.47]
+    "interest":    0.25,
+    "annuity":     0.15,
+    "loan":        0.10,
+    "bond":        0.10,
+    "duration":    0.15,
+    "derivatives": 0.25,
 }
 
 
@@ -28,14 +31,16 @@ def _fsrs_p_correct(concept_id: str) -> float:
     from engine.scheduler import store
     from engine.scheduler.fsrs_core import retrievability
 
-    cs = store.get_or_create(concept_id)
-    if cs.reps == 0 or cs.stability is None or cs.stability <= 0:
-        return 0.3  # cold-start prior
-    if cs.due is None:
+    concept_state = store.get_or_create(concept_id)
+    if concept_state.reps == 0 or concept_state.stability is None or concept_state.stability <= 0:
+        return 0.3  # cold-start prior: no review history to base an estimate on
+    if concept_state.due is None:
         return 0.5
     now = datetime.now(timezone.utc)
-    elapsed = max(0.0, (now - cs.due).total_seconds() / 86400)
-    return float(retrievability(elapsed + cs.stability, cs.stability))
+    days_overdue = max(0.0, (now - concept_state.due).total_seconds() / 86400)
+    # Re-anchor elapsed time at the review's scheduled stability so a concept
+    # exactly on time reads as "elapsed == stability" in the forgetting curve.
+    return float(retrievability(days_overdue + concept_state.stability, concept_state.stability))
 
 
 def compute_readiness(
@@ -52,41 +57,49 @@ def compute_readiness(
     Returns:
         (score, detail) where detail = {category: {score, weight, concepts: [...]}}
     """
-    by_cat: dict[str, list[Concept]] = {}
-    for c in concepts:
-        by_cat.setdefault(c.category, []).append(c)
+    concepts_by_category: dict[str, list[Concept]] = {}
+    for concept in concepts:
+        concepts_by_category.setdefault(concept.category, []).append(concept)
 
-    total_weight = sum(BAND_WEIGHT.get(cat, 0.0) for cat in by_cat)
+    # If none of the loaded concepts' categories appear in BAND_WEIGHT, there's
+    # nothing to weight against — this is the failure mode that silently zeroed
+    # out FM readiness when BAND_WEIGHT still held P-exam category names.
+    total_weight = sum(BAND_WEIGHT.get(category, 0.0) for category in concepts_by_category)
     if total_weight <= 0:
         return 0.0, {}
 
     detail: dict = {}
     readiness = 0.0
 
-    for cat, cat_concepts in by_cat.items():
-        band_w = BAND_WEIGHT.get(cat, 0.0)
-        if band_w == 0.0:
+    for category, category_concepts in concepts_by_category.items():
+        band_weight = BAND_WEIGHT.get(category, 0.0)
+        if band_weight == 0.0:
             continue
 
-        tier_sum = sum(c.exam_weight_tier for c in cat_concepts)
-        if tier_sum == 0:
+        tier_weight_sum = sum(concept.exam_weight_tier for concept in category_concepts)
+        if tier_weight_sum == 0:
             continue
 
-        cat_score = 0.0
+        category_score = 0.0
         concept_detail = []
-        for c in cat_concepts:
+        for concept in category_concepts:
             if p_correct is not None:
-                p = p_correct.get(c.id, 0.5)
+                p_correct_value = p_correct.get(concept.id, 0.5)
             else:
-                p = _fsrs_p_correct(c.id)
-            cat_score += c.exam_weight_tier * p
-            concept_detail.append({"id": c.id, "name": c.name, "p_correct": round(p, 4)})
+                p_correct_value = _fsrs_p_correct(concept.id)
+            category_score += concept.exam_weight_tier * p_correct_value
+            concept_detail.append({
+                "id": concept.id, "name": concept.name,
+                "p_correct": round(p_correct_value, 4),
+            })
 
-        cat_score /= tier_sum
-        readiness += (band_w / total_weight) * cat_score
-        detail[cat] = {
-            "score": round(cat_score, 4),
-            "band_weight": band_w,
+        # Normalize by total tier weight so each category's score is itself a
+        # weighted average in [0,1], independent of how many concepts it has.
+        category_score /= tier_weight_sum
+        readiness += (band_weight / total_weight) * category_score
+        detail[category] = {
+            "score": round(category_score, 4),
+            "band_weight": band_weight,
             "concepts": concept_detail,
         }
 

@@ -14,17 +14,26 @@ class DKT(nn.Module):
         dropout: float = 0.2,
     ) -> None:
         super().__init__()
-        self.n = n_concepts
+        self.n = n_concepts  # NOTE: stored but never read elsewhere — dead field
+        # Input is a 2*n_concepts-wide one-hot vector per step (concept index,
+        # offset by n_concepts if the answer was correct — see
+        # engine/tracing/dataset.py:encode_sequence for the matching encoder).
         self.lstm = nn.LSTM(
             2 * n_concepts,
             hidden,
             num_layers=layers,
             batch_first=True,
+            # Dropout between LSTM layers only makes sense with >1 layer;
+            # PyTorch warns if dropout is set with layers=1.
             dropout=dropout if layers > 1 else 0.0,
         )
         self.out = nn.Linear(hidden, n_concepts)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: (B, T, 2M) → (B, T, M) predicted P(correct) per concept."""
-        h, _ = self.lstm(x)
-        return torch.sigmoid(self.out(h))
+    def forward(self, one_hot_input: torch.Tensor) -> torch.Tensor:
+        """one_hot_input: (B, T, 2M) → (B, T, M) predicted P(correct) per concept.
+
+        Sigmoid squashes each concept's output independently to (0,1), since
+        P(correct) per concept isn't mutually exclusive across concepts.
+        """
+        lstm_output, _ = self.lstm(one_hot_input)
+        return torch.sigmoid(self.out(lstm_output))

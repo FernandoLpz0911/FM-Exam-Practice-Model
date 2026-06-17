@@ -31,7 +31,7 @@ def load(
 
 
 def _validate(nodes: list[dict]) -> None:
-    all_ids = {n["id"] for n in nodes}
+    all_ids = {node["id"] for node in nodes}
     for node in nodes:
         for prereq_id in node.get("prerequisites", []):
             if prereq_id not in all_ids:
@@ -43,33 +43,37 @@ def _validate(nodes: list[dict]) -> None:
 
 
 def _assert_no_cycles(nodes: list[dict]) -> None:
-    prereq_map = {
-        n["id"]: set(n.get("prerequisites", [])) for n in nodes
+    """Reject seed data with circular prerequisites, which would make the
+    concept graph un-orderable — a learner could never "finish" prerequisites
+    for a concept that's also one of its own (indirect) prerequisites.
+    """
+    prereqs_by_id = {
+        node["id"]: set(node.get("prerequisites", [])) for node in nodes
     }
-    visited: set[str] = set()
-    path: set[str] = set()
+    fully_checked: set[str] = set()
+    path_in_progress: set[str] = set()   # nodes on the current DFS stack
 
-    def dfs(node_id: str) -> None:
-        if node_id in path:
+    def visit(node_id: str) -> None:
+        if node_id in path_in_progress:
             raise ValueError(
                 f"Cycle detected involving concept '{node_id}'"
             )
-        if node_id in visited:
+        if node_id in fully_checked:
             return
-        path.add(node_id)
-        for prereq_id in prereq_map.get(node_id, set()):
-            dfs(prereq_id)
-        path.discard(node_id)
-        visited.add(node_id)
+        path_in_progress.add(node_id)
+        for prereq_id in prereqs_by_id.get(node_id, set()):
+            visit(prereq_id)
+        path_in_progress.discard(node_id)
+        fully_checked.add(node_id)
 
-    for node_id in prereq_map:
-        dfs(node_id)
+    for node_id in prereqs_by_id:
+        visit(node_id)
 
 
 def _insert(nodes: list[dict], theory: dict[str, str]) -> None:
     with get_connection() as conn:
         for node in nodes:
-            gen = node.get("generator")
+            generator_config = node.get("generator")
             conn.execute(
                 """
                 INSERT OR REPLACE INTO concept
@@ -83,10 +87,13 @@ def _insert(nodes: list[dict], theory: dict[str, str]) -> None:
                     node["category"],
                     node["exam_weight_tier"],
                     node.get("summary"),
-                    json.dumps(gen) if gen else None,
+                    json.dumps(generator_config) if generator_config else None,
                     theory.get(node["id"]),
                 ),
             )
+        # Re-seeding always wipes and rebuilds prerequisite edges from
+        # scratch — simpler than diffing old vs new edges, and safe because
+        # this whole function runs inside one connection/transaction.
         conn.execute("DELETE FROM concept_prereq")
         for node in nodes:
             for prereq_id in node.get("prerequisites", []):

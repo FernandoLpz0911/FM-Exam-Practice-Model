@@ -144,9 +144,10 @@ def get_next(session_id: int) -> NextOut:
     weakness: dict[str, float] | None = None
     if dkt_infer.dkt_is_active():
         history = dao.get_interaction_history()
-        preds = dkt_infer.predict(history)
-        if preds:
-            weakness = {cid: 1.0 - p for cid, p in preds.items()}
+        dkt_predictions = dkt_infer.predict(history)
+        if dkt_predictions:
+            # Invert P(correct) so higher weakness → concept needs more practice.
+            weakness = {cid: 1.0 - p for cid, p in dkt_predictions.items()}
 
     concept = policy.next_concept(weakness=weakness)
     if concept is None:
@@ -160,19 +161,27 @@ def get_next(session_id: int) -> NextOut:
     is_new_concept = card_state.reps == 0
 
     if concept.generator is not None:
-        gen_spec = concept.generator
-        max_tier = max_tier_for_reps(card_state.reps, DIFFICULTY_TIER2_REPS, DIFFICULTY_TIER3_REPS)
-        eligible = filter_asks(gen_spec["kind"], gen_spec["params"]["ask"], max_tier)
-        ask, _ = pick_ask(eligible)
+        generator_spec = concept.generator
+        max_difficulty_tier = max_tier_for_reps(
+            card_state.reps, DIFFICULTY_TIER2_REPS, DIFFICULTY_TIER3_REPS
+        )
+        eligible_asks = filter_asks(
+            generator_spec["kind"], generator_spec["params"]["ask"], max_difficulty_tier
+        )
+        ask, _ = pick_ask(eligible_asks)
         problem_seed = secrets.randbelow(2 ** 31)
-        problem = generate(gen_spec["kind"], ask, gen_spec["params"], problem_seed)
-        ca = problem.correct_answer
-        correct_answer_str = f"{ca:.6f}" if isinstance(ca, (int, float)) else str(ca)
+        problem = generate(generator_spec["kind"], ask, generator_spec["params"], problem_seed)
+        correct_answer_value = problem.correct_answer
+        correct_answer_str = (
+            f"{correct_answer_value:.6f}"
+            if isinstance(correct_answer_value, (int, float))
+            else str(correct_answer_value)
+        )
         item_id = dao.log_shown(
             session_id=session_id,
             concept_id=concept.id,
             seed=problem_seed,
-            problem_kind=f"{gen_spec['kind']}:{ask}",
+            problem_kind=f"{generator_spec['kind']}:{ask}",
             params_json=json.dumps(problem.params),
             correct_answer=correct_answer_str,
         )
@@ -186,6 +195,7 @@ def get_next(session_id: int) -> NextOut:
             is_new_concept=is_new_concept,
         )
 
+    # Concepts without a generator (theory-only nodes) get a plain review prompt.
     item_id = dao.log_shown(session_id, concept.id)
     return NextOut(
         item_id=item_id,
@@ -214,6 +224,7 @@ def post_answer(body: AnswerIn) -> AnswerOut:
         is_correct = None
     elif correct_answer_str and correct_answer_str != "N/A":
         is_correct = _grade_answer(body.user_answer, correct_answer_str)
+        # FSRS rating: 3=Good (answered correctly), 1=Again (answered wrong).
         grade = 3 if is_correct else 1
     else:
         is_correct = None
@@ -232,21 +243,25 @@ def post_answer(body: AnswerIn) -> AnswerOut:
     )
 
     note: str | None = None
-    steps: list[str] = []
-    details = dao.get_interaction_details(body.item_id)
-    if details and ":" in details["problem_kind"]:
-        kind, ask = details["problem_kind"].split(":", 1)
-        fb = compose_feedback(kind, ask, details["params"], body.user_answer, is_correct)
-        note = fb["note"]
-        steps = fb["solution_steps"]
+    solution_steps: list[str] = []
+    interaction_details = dao.get_interaction_details(body.item_id)
+    if interaction_details and ":" in interaction_details["problem_kind"]:
+        kind, ask = interaction_details["problem_kind"].split(":", 1)
+        feedback = compose_feedback(
+            kind, ask, interaction_details["params"], body.user_answer, is_correct
+        )
+        note = feedback["note"]
+        solution_steps = feedback["solution_steps"]
         if is_correct is False:
+            # Enqueue missed (kind, ask) so the scheduler replays it before
+            # moving on — immediate error-correction reinforces the skill.
             retry.enqueue(concept_id, kind, ask)
 
     return AnswerOut(
         is_correct=is_correct,
         correct_answer=correct_answer_str,
         note=note,
-        solution_steps=steps,
+        solution_steps=solution_steps,
         next_review_at=updated.due.isoformat() if updated.due else "",
     )
 
@@ -295,16 +310,17 @@ class TrainOut(BaseModel):
 
 @app.post("/train", response_model=TrainOut)
 def post_train() -> TrainOut:
-    result = dkt_train()
-    val_auc = result.get("val_auc")
+    training_result = dkt_train()
+    val_auc = training_result.get("val_auc")
     return TrainOut(
+        # `val_auc != val_auc` is the float NaN check (NaN is the only value not equal to itself).
         val_auc=val_auc if val_auc == val_auc else None,
-        best_epoch=result.get("best_epoch"),
-        n_interactions=result["n_interactions"],
-        epochs_run=result["epochs_run"],
-        checkpoint_path=result.get("checkpoint_path"),
+        best_epoch=training_result.get("best_epoch"),
+        n_interactions=training_result["n_interactions"],
+        epochs_run=training_result["epochs_run"],
+        checkpoint_path=training_result.get("checkpoint_path"),
         dkt_active=dkt_infer.dkt_is_active(),
-        error=result.get("error"),
+        error=training_result.get("error"),
     )
 
 
@@ -345,7 +361,8 @@ def get_readiness(snapshot: bool = True) -> dict:
     p_correct: dict[str, float] | None = None
     if dkt_infer.dkt_is_active():
         history = dao.get_interaction_history()
-        p_correct = dkt_infer.predict(history)
+        dkt_predictions = dkt_infer.predict(history)
+        p_correct = dkt_predictions
     score, detail = readiness_mod.compute_readiness(concepts, p_correct)
     if snapshot:
         readiness_mod.save_snapshot(score, detail)
@@ -422,13 +439,13 @@ def get_timing() -> list[dict]:
     concepts = {c.id: c.name for c in dao.get_all_concepts()}
     return [
         {
-            "concept_id": r["concept_id"],
-            "concept_name": concepts.get(r["concept_id"], r["concept_id"]),
-            "avg_s": round(r["avg_ms"] / 1000, 1),
-            "n_answered": r["n"],
-            "pct_over_target": round(r["n_over"] / r["n"] * 100, 1) if r["n"] > 0 else 0.0,
+            "concept_id": row["concept_id"],
+            "concept_name": concepts.get(row["concept_id"], row["concept_id"]),
+            "avg_s": round(row["avg_ms"] / 1000, 1),
+            "n_answered": row["n"],
+            "pct_over_target": round(row["n_over"] / row["n"] * 100, 1) if row["n"] > 0 else 0.0,
         }
-        for r in rows
+        for row in rows
     ]
 
 
@@ -451,54 +468,61 @@ def start_mock_exam(n: int = 30) -> dict:
 
     # FM SOA category weights (approximate): interest/annuity/loan ~45%, bonds ~15%,
     # duration/immunization ~15%, derivatives ~10%, theory/other ~15%
-    by_cat: dict[str, list] = {
+    concepts_by_category: dict[str, list] = {
         "interest": [], "annuity": [], "loan": [],
         "bond": [], "duration": [], "derivatives": [],
     }
     for c in concepts:
-        if c.category in by_cat:
-            by_cat[c.category].append(c)
+        if c.category in concepts_by_category:
+            concepts_by_category[c.category].append(c)
 
     n_interest = round(n * 0.20)
     n_annuity = round(n * 0.20)
     n_loan = round(n * 0.10)
     n_bond = round(n * 0.15)
     n_duration = round(n * 0.15)
-    n_deriv = n - n_interest - n_annuity - n_loan - n_bond - n_duration
+    # Remainder goes to derivatives so total always equals n exactly.
+    n_derivatives = n - n_interest - n_annuity - n_loan - n_bond - n_duration
 
     rng = np.random.default_rng(secrets.randbelow(2 ** 31))
 
-    def _sample(pool: list, k: int) -> list:
-        if not pool or k <= 0:
+    def _sample(pool: list, count: int) -> list:
+        if not pool or count <= 0:
             return []
+        # Weight by exam_weight_tier so higher-tier concepts appear more often.
         weights = np.array([float(c.exam_weight_tier) for c in pool], dtype=float)
         weights /= weights.sum()
-        idx = rng.choice(len(pool), size=k, replace=True, p=weights)
-        return [pool[i] for i in idx]
+        sampled_indices = rng.choice(len(pool), size=count, replace=True, p=weights)
+        return [pool[i] for i in sampled_indices]
 
     selected = (
-        _sample(by_cat["interest"], n_interest)
-        + _sample(by_cat["annuity"], n_annuity)
-        + _sample(by_cat["loan"], n_loan)
-        + _sample(by_cat["bond"], n_bond)
-        + _sample(by_cat["duration"], n_duration)
-        + _sample(by_cat["derivatives"], n_deriv)
+        _sample(concepts_by_category["interest"], n_interest)
+        + _sample(concepts_by_category["annuity"], n_annuity)
+        + _sample(concepts_by_category["loan"], n_loan)
+        + _sample(concepts_by_category["bond"], n_bond)
+        + _sample(concepts_by_category["duration"], n_duration)
+        + _sample(concepts_by_category["derivatives"], n_derivatives)
     )
+    # Shuffle so category clusters don't bias how students experience time pressure.
     rng.shuffle(selected)
 
     problems = []
     for concept in selected:
-        gen_spec = concept.generator
-        ask, _ = pick_ask(gen_spec["params"]["ask"])
+        generator_spec = concept.generator
+        ask, _ = pick_ask(generator_spec["params"]["ask"])
         problem_seed = secrets.randbelow(2 ** 31)
-        problem = generate(gen_spec["kind"], ask, gen_spec["params"], problem_seed)
-        ca = problem.correct_answer
-        correct_answer_str = f"{ca:.6f}" if isinstance(ca, (int, float)) else str(ca)
+        problem = generate(generator_spec["kind"], ask, generator_spec["params"], problem_seed)
+        correct_answer_value = problem.correct_answer
+        correct_answer_str = (
+            f"{correct_answer_value:.6f}"
+            if isinstance(correct_answer_value, (int, float))
+            else str(correct_answer_value)
+        )
         item_id = dao.log_shown(
             session_id=session_id,
             concept_id=concept.id,
             seed=problem_seed,
-            problem_kind=f"{gen_spec['kind']}:{ask}",
+            problem_kind=f"{generator_spec['kind']}:{ask}",
             params_json=json.dumps(problem.params),
             correct_answer=correct_answer_str,
         )
@@ -519,24 +543,25 @@ def grade_mock_exam(body: MockExamGradeIn) -> dict:
     by_category: dict[str, dict] = {}
     results = []
 
-    for ans in body.answers:
-        correct_str = dao.get_interaction_correct_answer(ans.item_id)
-        concept_id = dao.get_interaction_concept(ans.item_id)
-        is_correct = _grade_answer(ans.user_answer, correct_str or "")
+    for submission in body.answers:
+        stored_correct_answer = dao.get_interaction_correct_answer(submission.item_id)
+        concept_id = dao.get_interaction_concept(submission.item_id)
+        is_correct = _grade_answer(submission.user_answer, stored_correct_answer or "")
         dao.log_answered(
-            item_id=ans.item_id, user_answer=ans.user_answer or None,
+            item_id=submission.item_id, user_answer=submission.user_answer or None,
             is_correct=is_correct, grade=3 if is_correct else 1, elapsed_ms=0,
         )
         concept = dao.get_concept(concept_id or "")
-        cat = concept.category if concept else "unknown"
-        if cat not in by_category:
-            by_category[cat] = {"correct": 0, "total": 0}
-        by_category[cat]["total"] += 1
+        category = concept.category if concept else "unknown"
+        if category not in by_category:
+            by_category[category] = {"correct": 0, "total": 0}
+        by_category[category]["total"] += 1
         if is_correct:
-            by_category[cat]["correct"] += 1
+            by_category[category]["correct"] += 1
         results.append({
-            "item_id": ans.item_id, "correct_answer": correct_str,
-            "user_answer": ans.user_answer, "is_correct": is_correct, "concept_id": concept_id,
+            "item_id": submission.item_id, "correct_answer": stored_correct_answer,
+            "user_answer": submission.user_answer, "is_correct": is_correct,
+            "concept_id": concept_id,
         })
 
     n_total = len(results)
@@ -554,12 +579,17 @@ def grade_mock_exam(body: MockExamGradeIn) -> dict:
 
 
 def _grade_answer(user_answer: str, correct_answer: str, tolerance: float = 1e-3) -> bool:
-    """Exact string match (MC) or float within tolerance (numeric)."""
+    """Exact string match (MC) or float within tolerance (numeric).
+
+    Tolerance 1e-3 matches SOA FM grading convention: answers rounded to 4 decimal places
+    are accepted if within 0.001 of the stored value.
+    """
     if user_answer.strip() == correct_answer.strip():
         return True
     try:
         return abs(float(user_answer) - float(correct_answer)) <= tolerance
     except ValueError:
+        # Non-numeric MC answer that didn't match exactly → wrong.
         return False
 
 

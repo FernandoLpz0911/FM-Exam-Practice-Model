@@ -7,11 +7,11 @@ from engine.scheduler import store
 
 def is_mastered(concept_id: str) -> bool:
     """A concept is mastered when it has been reviewed enough times and stability is high."""
-    cs = store.get_or_create(concept_id)
+    concept_state = store.get_or_create(concept_id)
     return (
-        cs.state == "review"
-        and cs.reps >= MASTERY_MIN_REPS
-        and (cs.stability or 0.0) >= MASTERY_STABILITY_DAYS
+        concept_state.state == "review"
+        and concept_state.reps >= MASTERY_MIN_REPS
+        and (concept_state.stability or 0.0) >= MASTERY_STABILITY_DAYS
     )
 
 
@@ -26,5 +26,10 @@ def unlocked_concepts(concepts: list[Concept]) -> list[Concept]:
     Full mastery is not required to unlock dependents — one review is enough.
     The scheduler's warmth multiplier handles prioritisation of warm prereqs.
     """
-    introduced: dict[str, bool] = {c.id: is_introduced(c.id) for c in concepts}
-    return [c for c in concepts if all(introduced.get(p, False) for p in c.prerequisites)]
+    introduced_by_id: dict[str, bool] = {
+        concept.id: is_introduced(concept.id) for concept in concepts
+    }
+    return [
+        concept for concept in concepts
+        if all(introduced_by_id.get(prereq_id, False) for prereq_id in concept.prerequisites)
+    ]

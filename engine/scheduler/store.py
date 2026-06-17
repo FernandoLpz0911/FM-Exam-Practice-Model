@@ -69,6 +69,9 @@ def apply_rating(card_state: CardState, rating: int) -> CardState:
     # 8+ days, which is too sparse for procedural math skill formation.
     if new_reps < EARLY_REINFORCEMENT_REPS and due is not None:
         cap = datetime.now(timezone.utc) + timedelta(days=1)
+        # `due` (from py-fsrs) and `cap` must both be naive or both be aware —
+        # comparing them mixed raises TypeError, so match cap's awareness to
+        # whatever py-fsrs gave us for `due` rather than forcing one or the other.
         if due.tzinfo is None:
             cap = datetime.now() + timedelta(days=1)
         if due > cap:
@@ -111,16 +114,17 @@ def save(card_state: CardState) -> None:
         )
 
 
-def _to_fsrs_card(cs: CardState) -> FsrsCard:
+def _to_fsrs_card(card_state: CardState) -> FsrsCard:
+    """Translate our persisted CardState into the py-fsrs library's own Card type."""
     card = FsrsCard()
-    card.state = State[cs.state.capitalize()]
-    card.step = cs.step if cs.step is not None else 0
-    card.stability = cs.stability
-    card.difficulty = cs.difficulty
-    if cs.last_review is not None:
-        card.last_review = cs.last_review
-    if cs.due is not None:
-        card.due = cs.due
+    card.state = State[card_state.state.capitalize()]
+    card.step = card_state.step if card_state.step is not None else 0
+    card.stability = card_state.stability
+    card.difficulty = card_state.difficulty
+    if card_state.last_review is not None:
+        card.last_review = card_state.last_review
+    if card_state.due is not None:
+        card.due = card_state.due
     return card
 
 

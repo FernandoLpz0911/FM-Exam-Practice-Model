@@ -12,7 +12,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <span className="app-title">Exam&nbsp;P&nbsp;Engine</span>
+        <span className="app-title">Exam&nbsp;FM&nbsp;Engine</span>
         <nav className="app-nav">
           <button
             className={tab === 'study' ? 'nav-btn active' : 'nav-btn'}
